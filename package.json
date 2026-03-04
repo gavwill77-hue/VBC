@@ -9,7 +9,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate": "sh -c 'prisma migrate deploy'",
+    "prisma:migrate:dev": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "db:seed": "prisma db seed"
