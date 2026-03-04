@@ -105,9 +105,10 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null);
   const mode = body?.mode === "quick" ? "quick" : "single";
-  const parsed = mode === "quick" ? quickEntrySchema.safeParse(body) : scoreEntrySchema.safeParse(body);
+  const parsedQuick = mode === "quick" ? quickEntrySchema.safeParse(body) : null;
+  const parsedSingle = mode === "single" ? scoreEntrySchema.safeParse(body) : null;
 
-  if (!parsed.success) {
+  if ((mode === "quick" && !parsedQuick?.success) || (mode === "single" && !parsedSingle?.success)) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
@@ -122,7 +123,12 @@ export async function POST(request: NextRequest) {
 
   const event = data.player.event;
 
-  const updates = mode === "quick" ? parsed.data.scores : [parsed.data];
+  let updates: Array<{ holeNumber: number; strokes: number }> = [];
+  if (mode === "quick" && parsedQuick?.success) {
+    updates = parsedQuick.data.scores;
+  } else if (mode === "single" && parsedSingle?.success) {
+    updates = [parsedSingle.data];
+  }
 
   for (const update of updates) {
     if (update.strokes > event.maxInputStrokes) {

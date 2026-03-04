@@ -37,21 +37,22 @@ export async function GET() {
   if (!fullEvent) {
     return NextResponse.json({ error: "No leaderboard" }, { status: 404 });
   }
+  const eventData = fullEvent;
 
   const roundOnePositionMap = new Map((await roundOnePositions(event.id)).map((entry) => [entry.playerId, entry.position]));
 
   const callawaySettings = {
-    maxDoubleParEnabled: fullEvent.maxDoubleParEnabled,
-    capDeductionPerHoleDoublePar: fullEvent.capDeductionPerHoleDoublePar,
-    excludeWorseThanDoubleBogey: fullEvent.excludeWorseThanDoubleBogey
+    maxDoubleParEnabled: eventData.maxDoubleParEnabled,
+    capDeductionPerHoleDoublePar: eventData.capDeductionPerHoleDoublePar,
+    excludeWorseThanDoubleBogey: eventData.excludeWorseThanDoubleBogey
   };
 
-  function rowForPlayerRound(player: (typeof fullEvent.players)[number], roundNumber: 1 | 2): LeaderboardRow {
+  function rowForPlayerRound(player: (typeof eventData.players)[number], roundNumber: 1 | 2): LeaderboardRow {
     const round = player.rounds.find((candidate) => candidate.roundNumber === roundNumber);
     const scores = (round?.scores ?? []).map((score) => ({
       holeNumber: score.holeNumber,
       rawStrokes: score.strokesRaw,
-      adjustedStrokes: adjustedStrokesForInput(score.strokesRaw, score.holeNumber, fullEvent.maxDoubleParEnabled)
+      adjustedStrokes: adjustedStrokesForInput(score.strokesRaw, score.holeNumber, eventData.maxDoubleParEnabled)
     }));
 
     const totals = toFrontBackTotals(scores);
@@ -90,10 +91,10 @@ export async function GET() {
     };
   }
 
-  const round1Rows = fullEvent.players.map((player) => rowForPlayerRound(player, 1));
-  const round2Rows = fullEvent.players.map((player) => rowForPlayerRound(player, 2));
+  const round1Rows = eventData.players.map((player) => rowForPlayerRound(player, 1));
+  const round2Rows = eventData.players.map((player) => rowForPlayerRound(player, 2));
 
-  const weekendRows: LeaderboardRow[] = fullEvent.players.map((player) => {
+  const weekendRows: LeaderboardRow[] = eventData.players.map((player) => {
     const r1 = rowForPlayerRound(player, 1);
     const r2 = rowForPlayerRound(player, 2);
     return {
@@ -110,9 +111,9 @@ export async function GET() {
     };
   });
 
-  const rounds = fullEvent.players.flatMap((player) =>
+  const rounds = eventData.players.flatMap((player) =>
     player.rounds
-      .filter((round) => round.roundNumber === fullEvent.activeRoundNumber)
+      .filter((round) => round.roundNumber === eventData.activeRoundNumber)
       .map((round) => ({ ...round, scores: round.scores }))
   );
 
@@ -132,7 +133,7 @@ export async function GET() {
     };
   });
 
-  const teamRows = fullEvent.ambroseGroups.map((group) => {
+  const teamRows = eventData.ambroseGroups.map((group) => {
     const firstMember = group.members[0];
     const round = firstMember?.player.rounds.find((entry) => entry.roundNumber === 2);
     const scores = round?.scores ?? [];
@@ -155,15 +156,15 @@ export async function GET() {
 
   return NextResponse.json({
     event: {
-      name: fullEvent.name,
-      date: fullEvent.eventDate,
-      activeRoundNumber: fullEvent.activeRoundNumber,
-      totalRounds: fullEvent.totalRounds,
+      name: eventData.name,
+      date: eventData.eventDate,
+      activeRoundNumber: eventData.activeRoundNumber,
+      totalRounds: eventData.totalRounds,
       settings: {
-        maxDoubleParEnabled: fullEvent.maxDoubleParEnabled,
-        capDeductionPerHoleDoublePar: fullEvent.capDeductionPerHoleDoublePar,
-        excludeWorseThanDoubleBogey: fullEvent.excludeWorseThanDoubleBogey,
-        callawayTableVersion: fullEvent.callawayTableVersion
+        maxDoubleParEnabled: eventData.maxDoubleParEnabled,
+        capDeductionPerHoleDoublePar: eventData.capDeductionPerHoleDoublePar,
+        excludeWorseThanDoubleBogey: eventData.excludeWorseThanDoubleBogey,
+        callawayTableVersion: eventData.callawayTableVersion
       }
     },
     weekend: {
