@@ -334,6 +334,9 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
           <button onClick={createEventFromSettings} className="btn-secondary">
             Create New Event
           </button>
+          <a href="/admin/help" className="btn-secondary">
+            Admin Help
+          </a>
           <a href="/api/admin/export/leaderboard" className="btn-secondary">
             Export Leaderboard CSV
           </a>
@@ -451,7 +454,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                       const existing = player.scores.find((score) => score.holeNumber === hole.hole);
                       return (
                         <label key={`${player.id}-${hole.hole}`} className="panel-tight text-xs font-semibold">
-                          H{hole.hole}
+                          H{hole.hole} (P{hole.par})
                           <input
                             name={`hole_${hole.hole}`}
                             type="number"
