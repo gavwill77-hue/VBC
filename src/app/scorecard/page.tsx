@@ -88,6 +88,7 @@ export default async function ScorecardPage() {
     <ScorecardClient
       initialData={{
         player: { id: player.id, name: player.name },
+        targetPlayer: { id: player.id, name: player.name },
         event: {
           name: player.event.name,
           activeRoundNumber: player.event.activeRoundNumber as 1 | 2,

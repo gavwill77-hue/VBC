@@ -22,6 +22,7 @@ export default async function AdminPage() {
       ambroseMembership: {
         include: { group: { include: { members: { include: { player: true } } } } }
       },
+      roundGroups: true,
       rounds: { include: { scores: true } }
     },
     orderBy: { order: "asc" }
@@ -50,6 +51,8 @@ export default async function AdminPage() {
       order: player.order,
       latestRoundId: activeRound?.id,
       ambroseGroupNumber: player.ambroseMembership?.group.groupNumber ?? null,
+      round1GroupNumber: player.roundGroups.find((item) => item.roundNumber === 1)?.groupNumber ?? null,
+      round2GroupNumber: player.roundGroups.find((item) => item.roundNumber === 2)?.groupNumber ?? null,
       roundOnePosition: roundOnePositionMap.get(player.id) ?? null,
       scores: (activeRound?.scores ?? []).map((score) => ({
         holeNumber: score.holeNumber,

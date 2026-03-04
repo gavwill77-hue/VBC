@@ -41,5 +41,5 @@ export const playerPinSchema = z.object({
   playerId: z.string().min(1),
   name: z.string().min(1).max(60),
   username: z.string().regex(/^[a-zA-Z0-9_]{3,24}$/),
-  pin: z.string().regex(/^\d{6}$/)
+  pin: z.string().regex(/^\d{6}$/).optional()
 });

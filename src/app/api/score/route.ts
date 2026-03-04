@@ -14,13 +14,11 @@ type ScoreUpdate = {
 
 function sanitiseRoundNumber(input: unknown, fallback: number, totalRounds: number): RoundNumber {
   const parsed = Number(input);
-  if ((parsed === 1 || parsed === 2) && parsed <= totalRounds) {
-    return parsed;
-  }
+  if ((parsed === 1 || parsed === 2) && parsed <= totalRounds) return parsed;
   return fallback === 2 ? 2 : 1;
 }
 
-async function applyUpdatesToRound(roundId: string, eventMaxDoubleParEnabled: boolean, updates: ScoreUpdate[]) {
+async function applyUpdatesToRound(roundId: string, maxDoubleParEnabled: boolean, updates: ScoreUpdate[]) {
   for (const update of updates) {
     const existing = await prisma.holeScore.findUnique({
       where: {
@@ -36,7 +34,7 @@ async function applyUpdatesToRound(roundId: string, eventMaxDoubleParEnabled: bo
     }
 
     const nextRaw = update.strokes ?? existing!.strokesRaw;
-    const nextAdjusted = adjustedStrokesForInput(nextRaw, update.holeNumber, eventMaxDoubleParEnabled);
+    const nextAdjusted = adjustedStrokesForInput(nextRaw, update.holeNumber, maxDoubleParEnabled);
     const nextFirstDrivePlayerId = update.firstDrivePlayerId !== undefined
       ? update.firstDrivePlayerId
       : (existing?.firstDrivePlayerId ?? null);
@@ -64,24 +62,88 @@ async function applyUpdatesToRound(roundId: string, eventMaxDoubleParEnabled: bo
   }
 }
 
-async function getPlayerRound(userId: string, requestedRound?: RoundNumber) {
-  const player = await prisma.player.findFirst({
+async function getScoringContext(userId: string, requestedRound?: RoundNumber, requestedTargetPlayerId?: string) {
+  const scorer = await prisma.player.findFirst({
     where: { userId, event: { isActive: true } },
     include: {
       event: true,
       rounds: { include: { scores: true } }
     }
   });
+  if (!scorer) return null;
 
-  if (!player) {
-    return null;
+  const selectedRoundNumber = sanitiseRoundNumber(requestedRound, scorer.event.activeRoundNumber, scorer.event.totalRounds);
+
+  const scorerRoundGroup = await prisma.roundGroupAssignment.findUnique({
+    where: {
+      eventId_roundNumber_playerId: {
+        eventId: scorer.eventId,
+        roundNumber: selectedRoundNumber,
+        playerId: scorer.id
+      }
+    }
+  });
+
+  const groupAssignments = scorerRoundGroup
+    ? await prisma.roundGroupAssignment.findMany({
+        where: {
+          eventId: scorer.eventId,
+          roundNumber: selectedRoundNumber,
+          groupNumber: scorerRoundGroup.groupNumber
+        },
+        include: {
+          player: {
+            include: {
+              rounds: {
+                where: { roundNumber: selectedRoundNumber },
+                include: { scores: true }
+              }
+            }
+          }
+        },
+        orderBy: { player: { order: "asc" } }
+      })
+    : [];
+
+  const groupMembers = (groupAssignments.length > 0 ? groupAssignments : [{
+    groupNumber: null,
+    player: scorer
+  } as unknown as (typeof groupAssignments)[number]]).map((entry) => ({
+    playerId: entry.player.id,
+    name: entry.player.name,
+    groupNumber: scorerRoundGroup?.groupNumber ?? null,
+    scores: entry.player.rounds[0]?.scores ?? []
+  }));
+
+  const targetPlayerId = requestedTargetPlayerId ?? scorer.id;
+  const targetAllowed = groupMembers.some((member) => member.playerId === targetPlayerId);
+  if (!targetAllowed) {
+    return {
+      error: "Target player is not in your round group",
+      status: 403
+    } as const;
   }
 
-  const selectedRoundNumber = sanitiseRoundNumber(
-    requestedRound,
-    player.event.activeRoundNumber,
-    player.event.totalRounds
-  );
+  const targetPlayer = await prisma.player.findUnique({
+    where: { id: targetPlayerId },
+    include: { rounds: { include: { scores: true } } }
+  });
+  if (!targetPlayer) {
+    return { error: "Target player not found", status: 404 } as const;
+  }
+
+  let round = targetPlayer.rounds.find((candidate) => candidate.roundNumber === selectedRoundNumber);
+  if (!round) {
+    round = await prisma.round.create({
+      data: {
+        playerId: targetPlayer.id,
+        roundNumber: selectedRoundNumber,
+        status: "IN_PROGRESS",
+        startHole: scorer.event.roundStartHole
+      },
+      include: { scores: true }
+    });
+  }
 
   let roundUnavailableReason: string | null = null;
   let ambrose: {
@@ -94,50 +156,36 @@ async function getPlayerRound(userId: string, requestedRound?: RoundNumber) {
   } | null = null;
 
   if (selectedRoundNumber === 2) {
-    const membership = await getPlayerAmbroseGroup(player.id);
+    const membership = await getPlayerAmbroseGroup(targetPlayer.id);
     if (!membership) {
       roundUnavailableReason = "Round 2 score entry opens after admin allocates Ambrose pairs.";
-      return { player, round: null, selectedRoundNumber, roundUnavailableReason, ambrose };
+    } else {
+      const handicap = await ambroseHandicapForGroup(membership.groupId);
+      const grossTotal = round.scores.reduce((sum, score) => sum + score.strokesRaw, 0);
+      ambrose = {
+        groupNumber: membership.group.groupNumber,
+        teammates: membership.group.members.map((member) => member.player.name),
+        handicap,
+        grossTotal,
+        netScore: grossTotal - handicap,
+        firstDriveOptions: membership.group.members.map((member) => ({
+          playerId: member.player.id,
+          name: member.player.name
+        }))
+      };
     }
-    const handicap = await ambroseHandicapForGroup(membership.groupId);
-    const existingRound = player.rounds.find((candidate) => candidate.roundNumber === 2);
-    const grossTotal = existingRound?.scores.reduce((sum, score) => sum + score.strokesRaw, 0) ?? 0;
-    ambrose = {
-      groupNumber: membership.group.groupNumber,
-      teammates: membership.group.members.map((member) => member.player.name),
-      handicap,
-      grossTotal,
-      netScore: grossTotal - handicap,
-      firstDriveOptions: membership.group.members.map((member) => ({
-        playerId: member.player.id,
-        name: member.player.name
-      }))
-    };
   }
 
-  let round = player.rounds.find((candidate) => candidate.roundNumber === selectedRoundNumber);
-  if (!round) {
-    round = await prisma.round.create({
-      data: {
-        playerId: player.id,
-        roundNumber: selectedRoundNumber,
-        status: "IN_PROGRESS",
-        startHole: player.event.roundStartHole
-      },
-      include: { scores: true }
-    });
-  }
-
-  if (selectedRoundNumber === 2 && ambrose) {
-    const grossTotal = round.scores.reduce((sum, score) => sum + score.strokesRaw, 0);
-    ambrose = {
-      ...ambrose,
-      grossTotal,
-      netScore: grossTotal - ambrose.handicap
-    };
-  }
-
-  return { player, round, selectedRoundNumber, roundUnavailableReason, ambrose };
+  return {
+    scorer,
+    targetPlayer,
+    round,
+    selectedRoundNumber,
+    roundUnavailableReason,
+    ambrose,
+    groupNumber: scorerRoundGroup?.groupNumber ?? null,
+    groupMembers
+  } as const;
 }
 
 export async function GET(request: NextRequest) {
@@ -147,48 +195,47 @@ export async function GET(request: NextRequest) {
   }
 
   const requestedRound = request.nextUrl.searchParams.get("roundNumber");
-  const data = await getPlayerRound(user.id, requestedRound === "2" ? 2 : requestedRound === "1" ? 1 : undefined);
-  if (!data) {
-    return NextResponse.json({ error: "Player not found" }, { status: 404 });
-  }
-
-  if (!data.round) {
-    return NextResponse.json({
-      player: { id: data.player.id, name: data.player.name },
-      event: data.player.event,
-      selectedRoundNumber: data.selectedRoundNumber,
-      roundUnavailableReason: data.roundUnavailableReason,
-      round: null
-    });
-  }
+  const requestedTargetPlayerId = request.nextUrl.searchParams.get("targetPlayerId") ?? undefined;
+  const context = await getScoringContext(
+    user.id,
+    requestedRound === "2" ? 2 : requestedRound === "1" ? 1 : undefined,
+    requestedTargetPlayerId
+  );
+  if (!context) return NextResponse.json({ error: "Player not found" }, { status: 404 });
+  if ("error" in context) return NextResponse.json({ error: context.error }, { status: context.status });
 
   const callaway = calculateCallawayResult(
-    data.round.scores.map((score) => ({
+    context.round.scores.map((score) => ({
       holeNumber: score.holeNumber,
       rawStrokes: score.strokesRaw,
-      adjustedStrokes: adjustedStrokesForInput(score.strokesRaw, score.holeNumber, data.player.event.maxDoubleParEnabled)
+      adjustedStrokes: adjustedStrokesForInput(score.strokesRaw, score.holeNumber, context.scorer.event.maxDoubleParEnabled)
     })),
     {
-      maxDoubleParEnabled: data.player.event.maxDoubleParEnabled,
-      capDeductionPerHoleDoublePar: data.player.event.capDeductionPerHoleDoublePar,
-      excludeWorseThanDoubleBogey: data.player.event.excludeWorseThanDoubleBogey
+      maxDoubleParEnabled: context.scorer.event.maxDoubleParEnabled,
+      capDeductionPerHoleDoublePar: context.scorer.event.capDeductionPerHoleDoublePar,
+      excludeWorseThanDoubleBogey: context.scorer.event.excludeWorseThanDoubleBogey
     }
   );
 
   return NextResponse.json({
-    player: { id: data.player.id, name: data.player.name },
-    event: data.player.event,
-    selectedRoundNumber: data.selectedRoundNumber,
-    roundUnavailableReason: data.roundUnavailableReason,
+    player: { id: context.scorer.id, name: context.scorer.name },
+    targetPlayer: { id: context.targetPlayer.id, name: context.targetPlayer.name },
+    event: context.scorer.event,
+    selectedRoundNumber: context.selectedRoundNumber,
+    roundUnavailableReason: context.roundUnavailableReason,
     round: {
-      id: data.round.id,
-      roundNumber: data.round.roundNumber,
-      startHole: data.round.startHole,
-      status: data.round.status,
-      lockedByAdmin: data.round.lockedByAdmin,
-      scores: data.round.scores,
+      id: context.round.id,
+      roundNumber: context.round.roundNumber,
+      startHole: context.round.startHole,
+      status: context.round.status,
+      lockedByAdmin: context.round.lockedByAdmin,
+      scores: context.round.scores,
       callaway,
-      ambrose: data.round.roundNumber === 2 ? data.ambrose : null
+      ambrose: context.round.roundNumber === 2 ? context.ambrose : null,
+      scorerGroup: {
+        groupNumber: context.groupNumber,
+        members: context.groupMembers
+      }
     }
   });
 }
@@ -203,31 +250,23 @@ export async function POST(request: NextRequest) {
   const mode = body?.mode === "quick" ? "quick" : "single";
   const parsedQuick = mode === "quick" ? quickEntrySchema.safeParse(body) : null;
   const parsedSingle = mode === "single" ? scoreEntrySchema.safeParse(body) : null;
-
   if ((mode === "quick" && !parsedQuick?.success) || (mode === "single" && !parsedSingle?.success)) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
   let roundNumber: RoundNumber | undefined;
-  if (mode === "quick" && parsedQuick?.success) {
-    roundNumber = parsedQuick.data.roundNumber;
-  }
-  if (mode === "single" && parsedSingle?.success) {
-    roundNumber = parsedSingle.data.roundNumber;
-  }
+  if (mode === "quick" && parsedQuick?.success) roundNumber = parsedQuick.data.roundNumber;
+  if (mode === "single" && parsedSingle?.success) roundNumber = parsedSingle.data.roundNumber;
+  const targetPlayerId = typeof body?.targetPlayerId === "string" ? body.targetPlayerId : undefined;
 
-  const data = await getPlayerRound(user.id, roundNumber);
-  if (!data) {
-    return NextResponse.json({ error: "Player not found" }, { status: 404 });
-  }
-  if (!data.round) {
-    return NextResponse.json({ error: data.roundUnavailableReason ?? "Round unavailable" }, { status: 409 });
-  }
-  if (data.round.lockedByAdmin || data.round.status === "COMPLETE") {
+  const context = await getScoringContext(user.id, roundNumber, targetPlayerId);
+  if (!context) return NextResponse.json({ error: "Player not found" }, { status: 404 });
+  if ("error" in context) return NextResponse.json({ error: context.error }, { status: context.status });
+  if (context.roundUnavailableReason) return NextResponse.json({ error: context.roundUnavailableReason }, { status: 409 });
+  if (context.round.lockedByAdmin || context.round.status === "COMPLETE") {
     return NextResponse.json({ error: "Round is locked" }, { status: 409 });
   }
 
-  const event = data.player.event;
   let updates: ScoreUpdate[] = [];
   if (mode === "quick" && parsedQuick?.success) {
     updates = parsedQuick.data.scores.map((entry) => ({
@@ -244,16 +283,14 @@ export async function POST(request: NextRequest) {
   }
 
   for (const update of updates) {
-    if (update.strokes !== undefined && update.strokes > event.maxInputStrokes) {
-      return NextResponse.json({ error: `Max input strokes is ${event.maxInputStrokes}` }, { status: 400 });
+    if (update.strokes !== undefined && update.strokes > context.scorer.event.maxInputStrokes) {
+      return NextResponse.json({ error: `Max input strokes is ${context.scorer.event.maxInputStrokes}` }, { status: 400 });
     }
   }
 
-  if (data.selectedRoundNumber === 2) {
-    const membership = await getPlayerAmbroseGroup(data.player.id);
-    if (!membership) {
-      return NextResponse.json({ error: "Round 2 requires Ambrose pair allocation" }, { status: 409 });
-    }
+  if (context.selectedRoundNumber === 2 && context.ambrose) {
+    const membership = await getPlayerAmbroseGroup(context.targetPlayer.id);
+    if (!membership) return NextResponse.json({ error: "Round 2 requires Ambrose pair allocation" }, { status: 409 });
 
     const teammatePlayerIds = membership.group.members.map((member) => member.playerId);
     const allowedDriveIds = new Set(teammatePlayerIds);
@@ -264,12 +301,8 @@ export async function POST(request: NextRequest) {
     }
 
     const existingTeammateRounds = await prisma.round.findMany({
-      where: {
-        playerId: { in: teammatePlayerIds },
-        roundNumber: 2
-      }
+      where: { playerId: { in: teammatePlayerIds }, roundNumber: 2 }
     });
-
     if (existingTeammateRounds.some((round) => round.lockedByAdmin || round.status === "COMPLETE")) {
       return NextResponse.json({ error: "Round 2 is locked for this Ambrose group" }, { status: 409 });
     }
@@ -281,7 +314,7 @@ export async function POST(request: NextRequest) {
           data: {
             playerId: teammateId,
             roundNumber: 2,
-            startHole: event.roundStartHole,
+            startHole: context.scorer.event.roundStartHole,
             status: "IN_PROGRESS"
           }
         });
@@ -289,13 +322,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const rounds = [...roundByPlayer.values()];
-    for (const round of rounds) {
-      await applyUpdatesToRound(round.id, event.maxDoubleParEnabled, updates);
+    for (const round of [...roundByPlayer.values()]) {
+      await applyUpdatesToRound(round.id, context.scorer.event.maxDoubleParEnabled, updates);
     }
 
     const primaryRound = await prisma.round.findUniqueOrThrow({
-      where: { id: data.round.id },
+      where: { id: context.round.id },
       include: { scores: true }
     });
     const grossTotal = primaryRound.scores.reduce((sum, score) => sum + score.strokesRaw, 0);
@@ -303,10 +335,7 @@ export async function POST(request: NextRequest) {
     const netScore = grossTotal - handicap;
 
     await prisma.round.updateMany({
-      where: {
-        playerId: { in: teammatePlayerIds },
-        roundNumber: 2
-      },
+      where: { playerId: { in: teammatePlayerIds }, roundNumber: 2 },
       data: {
         grossTotal,
         adjustedGross: grossTotal,
@@ -323,34 +352,25 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    return NextResponse.json({
-      ok: true,
-      ambrose: {
-        groupNumber: membership.group.groupNumber,
-        handicap,
-        grossTotal,
-        netScore
-      }
-    });
+    return NextResponse.json({ ok: true });
   }
 
-  await applyUpdatesToRound(data.round.id, event.maxDoubleParEnabled, updates);
+  await applyUpdatesToRound(context.round.id, context.scorer.event.maxDoubleParEnabled, updates);
 
   const freshRound = await prisma.round.findUniqueOrThrow({
-    where: { id: data.round.id },
+    where: { id: context.round.id },
     include: { scores: true }
   });
-
   const callaway = calculateCallawayResult(
     freshRound.scores.map((score) => ({
       holeNumber: score.holeNumber,
       rawStrokes: score.strokesRaw,
-      adjustedStrokes: adjustedStrokesForInput(score.strokesRaw, score.holeNumber, event.maxDoubleParEnabled)
+      adjustedStrokes: adjustedStrokesForInput(score.strokesRaw, score.holeNumber, context.scorer.event.maxDoubleParEnabled)
     })),
     {
-      maxDoubleParEnabled: event.maxDoubleParEnabled,
-      capDeductionPerHoleDoublePar: event.capDeductionPerHoleDoublePar,
-      excludeWorseThanDoubleBogey: event.excludeWorseThanDoubleBogey
+      maxDoubleParEnabled: context.scorer.event.maxDoubleParEnabled,
+      capDeductionPerHoleDoublePar: context.scorer.event.capDeductionPerHoleDoublePar,
+      excludeWorseThanDoubleBogey: context.scorer.event.excludeWorseThanDoubleBogey
     }
   );
 
@@ -365,9 +385,9 @@ export async function POST(request: NextRequest) {
       adjustmentFactor: callaway.adjustment,
       calcInputsJson: JSON.stringify({
         settings: {
-          maxDoubleParEnabled: event.maxDoubleParEnabled,
-          capDeductionPerHoleDoublePar: event.capDeductionPerHoleDoublePar,
-          excludeWorseThanDoubleBogey: event.excludeWorseThanDoubleBogey
+          maxDoubleParEnabled: context.scorer.event.maxDoubleParEnabled,
+          capDeductionPerHoleDoublePar: context.scorer.event.capDeductionPerHoleDoublePar,
+          excludeWorseThanDoubleBogey: context.scorer.event.excludeWorseThanDoubleBogey
         },
         scores: freshRound.scores.map((score) => ({
           hole: score.holeNumber,
@@ -380,5 +400,5 @@ export async function POST(request: NextRequest) {
     }
   });
 
-  return NextResponse.json({ ok: true, callaway });
+  return NextResponse.json({ ok: true });
 }

@@ -41,6 +41,7 @@ model Event {
   updatedAt                    DateTime  @updatedAt
   players                      Player[]
   ambroseGroups                AmbroseGroup[]
+  roundGroups                  RoundGroupAssignment[]
 }
 
 model Player {
@@ -53,6 +54,7 @@ model Player {
   order     Int
   rounds    Round[]
   ambroseMembership AmbroseGroupMember?
+  roundGroups RoundGroupAssignment[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -123,6 +125,20 @@ model HoleScore {
   updatedAt      DateTime @updatedAt
 
   @@unique([roundId, holeNumber])
+}
+
+model RoundGroupAssignment {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  roundNumber Int
+  groupNumber Int
+  playerId    String
+  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([eventId, roundNumber, playerId])
 }
 
 model AuditLog {

@@ -54,13 +54,21 @@ async function main() {
       }
     });
 
-    await prisma.player.create({
+    const player = await prisma.player.create({
       data: {
         eventId: event.id,
         userId: user.id,
         name: `Player ${i}`,
         order: i
       }
+    });
+
+    const groupNumber = Math.ceil(i / 4);
+    await prisma.roundGroupAssignment.createMany({
+      data: [
+        { eventId: event.id, roundNumber: 1, groupNumber, playerId: player.id },
+        { eventId: event.id, roundNumber: 2, groupNumber, playerId: player.id }
+      ]
     });
   }
 

@@ -5,6 +5,7 @@ import { HOLES, holeEntryOrder } from "@/lib/course";
 
 type ScoreData = {
   player: { id: string; name: string };
+  targetPlayer?: { id: string; name: string };
   event: {
     name: string;
     activeRoundNumber: 1 | 2;
@@ -24,6 +25,15 @@ type ScoreData = {
     status: "IN_PROGRESS" | "COMPLETE";
     lockedByAdmin: boolean;
     scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>;
+    scorerGroup?: {
+      groupNumber: number | null;
+      members: Array<{
+        playerId: string;
+        name: string;
+        groupNumber: number | null;
+        scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>;
+      }>;
+    };
     callaway: {
       grossTotal: number;
       adjustedGross: number;
@@ -57,26 +67,28 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState("");
   const [selectedRound, setSelectedRound] = useState<1 | 2>(initialData.selectedRoundNumber);
+  const [targetPlayerId, setTargetPlayerId] = useState<string>(initialData.targetPlayer?.id ?? initialData.player.id);
 
-  const scoreMap = useMemo(
-    () => new Map((data.round?.scores ?? []).map((score) => [score.holeNumber, score.strokesRaw])),
-    [data.round?.scores]
-  );
-  const firstDriveMap = useMemo(
-    () => new Map((data.round?.scores ?? []).map((score) => [score.holeNumber, score.firstDrivePlayerId])),
-    [data.round?.scores]
-  );
+  const activeScores = useMemo(() => {
+    const fromGroup = data.round?.scorerGroup?.members.find((member) => member.playerId === targetPlayerId)?.scores;
+    return fromGroup ?? data.round?.scores ?? [];
+  }, [data.round?.scores, data.round?.scorerGroup?.members, targetPlayerId]);
+
+  const scoreMap = useMemo(() => new Map(activeScores.map((score) => [score.holeNumber, score.strokesRaw])), [activeScores]);
+  const firstDriveMap = useMemo(() => new Map(activeScores.map((score) => [score.holeNumber, score.firstDrivePlayerId])), [activeScores]);
 
   const order = holeEntryOrder(data.round?.startHole ?? 1);
 
   const refresh = useCallback(async (roundNumber: 1 | 2) => {
-    const response = await fetch(`/api/score?roundNumber=${roundNumber}`);
+    const query = new URLSearchParams({ roundNumber: String(roundNumber), targetPlayerId });
+    const response = await fetch(`/api/score?${query.toString()}`);
     if (response.ok) {
       const next = (await response.json()) as ScoreData;
       setData(next);
       setSelectedRound(next.selectedRoundNumber);
+      setTargetPlayerId(next.targetPlayer?.id ?? next.player.id);
     }
-  }, []);
+  }, [targetPlayerId]);
 
   const syncPending = useCallback(async (entries: Array<{ holeNumber: number; strokes: number }>, roundNumber: 1 | 2) => {
     if (entries.length === 0) return;
@@ -84,7 +96,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
       const response = await fetch("/api/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "quick", roundNumber, scores: entries })
+        body: JSON.stringify({ mode: "quick", roundNumber, scores: entries, targetPlayerId })
       });
       if (response.ok) {
         localStorage.removeItem(storageKey(roundNumber));
@@ -97,12 +109,16 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
       await fetch("/api/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...entry, roundNumber })
+        body: JSON.stringify({ ...entry, roundNumber, targetPlayerId })
       });
     }
     localStorage.removeItem(storageKey(roundNumber));
     await refresh(roundNumber);
   }, [refresh]);
+
+  useEffect(() => {
+    void refresh(selectedRound);
+  }, [selectedRound, refresh]);
 
   useEffect(() => {
     const raw = localStorage.getItem(storageKey(selectedRound));
@@ -144,7 +160,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
     const response = await fetch("/api/score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ holeNumber, strokes, firstDrivePlayerId, roundNumber: selectedRound })
+      body: JSON.stringify({ holeNumber, strokes, firstDrivePlayerId, roundNumber: selectedRound, targetPlayerId })
     });
 
     if (!response.ok) {
@@ -162,6 +178,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
   const roundLocked = !!data.round && (data.round.lockedByAdmin || data.round.status === "COMPLETE");
   const roundUnavailable = data.round === null;
   const currentRound = data.round;
+  const isCallawayReady = !!currentRound && currentRound.roundNumber === 1 && currentRound.scores.length === 18;
 
   const driveCounts = useMemo(() => {
     if (!currentRound?.ambrose) return [];
@@ -186,6 +203,23 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
         <p className="pill w-fit">Player View</p>
         <h1 className="mt-2 text-3xl font-semibold leading-tight sm:text-4xl">{data.event.name}</h1>
         <p className="mt-1 text-sm text-slate-600">{data.player.name}</p>
+        {!!currentRound?.scorerGroup && currentRound.scorerGroup.members.length > 1 && (
+          <label className="mt-2 block text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Entering scores for</span>
+            <select
+              className="mt-1 w-full bg-white px-3 py-2"
+              value={targetPlayerId}
+              onChange={(e) => {
+                setTargetPlayerId(e.target.value);
+                void refresh(selectedRound);
+              }}
+            >
+              {currentRound.scorerGroup.members.map((member) => (
+                <option key={member.playerId} value={member.playerId}>{member.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="mobile-sticky-actions mt-3">
           <div className="grid grid-cols-2 gap-2">
             <button className={selectedRound === 1 ? "btn-primary" : "btn-secondary"} onClick={() => void refresh(1)}>Round 1</button>
@@ -198,6 +232,11 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
         <p className="mt-2 text-sm text-slate-600">
           Max double par {data.event.maxDoubleParEnabled ? "ON" : "OFF"}. Deduction cap {data.event.capDeductionPerHoleDoublePar ? "ON" : "OFF"}. Exclude scores &gt; double par from deductions {data.event.excludeWorseThanDoubleBogey ? "ON" : "OFF"}.
         </p>
+        {!!currentRound && currentRound.roundNumber === 1 && currentRound.scores.length < 18 && (
+          <p className="mt-2 text-sm font-semibold text-slate-700">
+            Callaway handicap and net appear after all 18 holes are entered.
+          </p>
+        )}
         {roundLocked && <p className="mt-2 text-sm font-semibold text-orange-700">This round is locked and cannot be edited.</p>}
       </section>
 
@@ -285,18 +324,27 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
               </div>
             ) : (
               <>
-                <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
-                  <p><span className="font-semibold">Adjusted gross:</span> {currentRound!.callaway.adjustedGross}</p>
-                  <p><span className="font-semibold">Entitlement:</span> {currentRound!.callaway.entitlement} worst holes</p>
-                  <p><span className="font-semibold">Selected holes:</span> {currentRound!.callaway.selectedHoleNumbers.length > 0 ? currentRound!.callaway.selectedHoleNumbers.join(", ") : "-"}</p>
-                  <p><span className="font-semibold">Half-hole applied:</span> {currentRound!.callaway.halfHoleAppliedTo ?? "-"}</p>
-                  <p><span className="font-semibold">Deductible strokes sum:</span> {currentRound!.callaway.deductibleSum.toFixed(1)}</p>
-                  <p><span className="font-semibold">Adjustment factor:</span> {currentRound!.callaway.adjustment >= 0 ? `+${currentRound!.callaway.adjustment}` : currentRound!.callaway.adjustment}</p>
-                  <p><span className="font-semibold">Handicap allowance:</span> {currentRound!.callaway.handicapAllowance.toFixed(1)}</p>
-                  <p><span className="font-semibold">Table version:</span> {currentRound!.callaway.tableVersion}</p>
-                </div>
-                <p className="mt-3 text-sm font-semibold text-slate-700">Net = Adjusted Gross ({currentRound!.callaway.adjustedGross}) - Handicap Allowance ({currentRound!.callaway.handicapAllowance.toFixed(1)}) = {currentRound!.callaway.netScore.toFixed(1)}</p>
-                {currentRound!.callaway.isMaxHandicapApplied && <p className="mt-2 text-xs font-semibold text-orange-700">Maximum Callaway handicap of 50 applied.</p>}
+                {!isCallawayReady ? (
+                  <div className="mt-3 space-y-2 text-sm">
+                    <p><span className="font-semibold">Adjusted gross (live):</span> {currentRound!.callaway.adjustedGross}</p>
+                    <p className="font-semibold text-slate-700">Callaway handicap and net are hidden until 18/18 holes are complete.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                      <p><span className="font-semibold">Adjusted gross:</span> {currentRound!.callaway.adjustedGross}</p>
+                      <p><span className="font-semibold">Entitlement:</span> {currentRound!.callaway.entitlement} worst holes</p>
+                      <p><span className="font-semibold">Selected holes:</span> {currentRound!.callaway.selectedHoleNumbers.length > 0 ? currentRound!.callaway.selectedHoleNumbers.join(", ") : "-"}</p>
+                      <p><span className="font-semibold">Half-hole applied:</span> {currentRound!.callaway.halfHoleAppliedTo ?? "-"}</p>
+                      <p><span className="font-semibold">Deductible strokes sum:</span> {currentRound!.callaway.deductibleSum.toFixed(1)}</p>
+                      <p><span className="font-semibold">Adjustment factor:</span> {currentRound!.callaway.adjustment >= 0 ? `+${currentRound!.callaway.adjustment}` : currentRound!.callaway.adjustment}</p>
+                      <p><span className="font-semibold">Handicap allowance:</span> {currentRound!.callaway.handicapAllowance.toFixed(1)}</p>
+                      <p><span className="font-semibold">Table version:</span> {currentRound!.callaway.tableVersion}</p>
+                    </div>
+                    <p className="mt-3 text-sm font-semibold text-slate-700">Net = Adjusted Gross ({currentRound!.callaway.adjustedGross}) - Handicap Allowance ({currentRound!.callaway.handicapAllowance.toFixed(1)}) = {currentRound!.callaway.netScore.toFixed(1)}</p>
+                    {currentRound!.callaway.isMaxHandicapApplied && <p className="mt-2 text-xs font-semibold text-orange-700">Maximum Callaway handicap of 50 applied.</p>}
+                  </>
+                )}
               </>
             )}
           </section>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HOLES } from "@/lib/course";
 import { adjustedStrokesForInput, calculateCallawayResult } from "@/lib/callaway";
 
@@ -31,6 +31,8 @@ type AdminPanelProps = {
     order: number;
     latestRoundId?: string;
     ambroseGroupNumber: number | null;
+    round1GroupNumber: number | null;
+    round2GroupNumber: number | null;
     roundOnePosition: number | null;
     scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>;
     ambroseDriveOptions: Array<{ playerId: string; name: string }>;
@@ -52,6 +54,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
   });
 
   const [message, setMessage] = useState("");
+  const settingsDirtyRef = useRef(false);
 
   function formatDateStable(isoDate: string): string {
     const date = new Date(isoDate);
@@ -69,6 +72,17 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
     });
     setMessage(response.ok ? "Settings saved" : "Failed to save settings");
   }
+
+  useEffect(() => {
+    if (!settingsDirtyRef.current) {
+      settingsDirtyRef.current = true;
+      return;
+    }
+    const timer = setTimeout(() => {
+      void saveSettings();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [settings]);
 
   async function createEventFromSettings() {
     const response = await fetch("/api/admin/event", {
@@ -142,6 +156,15 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
       )
     );
     setMessage(`Player updated. Username is now: ${payload.username ?? ""}`);
+  }
+
+  async function saveRoundGroup(playerId: string, roundNumber: 1 | 2, groupNumber: number | null) {
+    const response = await fetch("/api/admin/round-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerId, roundNumber, groupNumber })
+    });
+    setMessage(response.ok ? `Round ${roundNumber} group saved` : `Failed to save Round ${roundNumber} group`);
   }
 
   async function roundAction(playerId: string, action: "reset" | "unlock" | "complete") {
@@ -237,6 +260,21 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
       body: JSON.stringify({ assignments })
     });
 
+    setMessage(response.ok ? "Ambrose groups saved" : "Failed to save Ambrose groups");
+  }
+
+  async function saveAmbroseGroupsForRows(rows: typeof playerRows) {
+    const assignments = rows
+      .filter((player) => player.ambroseGroupNumber !== null)
+      .map((player) => ({
+        playerId: player.id,
+        groupNumber: player.ambroseGroupNumber as number
+      }));
+    const response = await fetch("/api/admin/ambrose-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignments })
+    });
     setMessage(response.ok ? "Ambrose groups saved" : "Failed to save Ambrose groups");
   }
 
@@ -424,7 +462,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
       <section className="panel">
         <h2 className="text-2xl font-semibold sm:text-3xl">Players</h2>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">Round 2 Ambrose groups are set manually. Pair players into group numbers (1-8).</p>
+          <p className="text-sm text-slate-600">Assign day groups (1-4) and optional Round 2 Ambrose pairs.</p>
           <button type="button" className="btn-primary" onClick={saveAmbroseGroups}>
             Save Ambrose Groups
           </button>
@@ -448,9 +486,35 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                 }}
               >
                 <div className="grid gap-2 lg:grid-cols-4">
-                  <input name="name" defaultValue={player.name} placeholder="Player name" required className="bg-white px-4 py-3" />
-                  <input name="username" defaultValue={player.username} placeholder="Username" required className="bg-white px-4 py-3" />
-                  <input name="pin" placeholder="6 digit PIN" inputMode="numeric" pattern="[0-9]{6}" required className="bg-white px-4 py-3" />
+                  <input
+                    name="name"
+                    defaultValue={player.name}
+                    placeholder="Player name"
+                    required
+                    className="bg-white px-4 py-3"
+                    onBlur={(e) => e.currentTarget.form?.requestSubmit()}
+                  />
+                  <input
+                    name="username"
+                    defaultValue={player.username}
+                    placeholder="Username"
+                    required
+                    className="bg-white px-4 py-3"
+                    onBlur={(e) => e.currentTarget.form?.requestSubmit()}
+                  />
+                  <input
+                    name="pin"
+                    placeholder="6 digit PIN (optional)"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    className="bg-white px-4 py-3"
+                    onBlur={(e) => {
+                      if (e.currentTarget.value.trim().length === 6) {
+                        e.currentTarget.form?.requestSubmit();
+                        e.currentTarget.value = "";
+                      }
+                    }}
+                  />
                   <div className="flex flex-wrap gap-2">
                     <button className="btn-primary" type="submit">Save</button>
                     <a href={`/api/admin/export/player/${player.id}`} className="btn-secondary">
@@ -463,18 +527,22 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                   <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Ambrose Group</label>
                   <select
                     value={player.ambroseGroupNumber ?? ""}
-                    onChange={(e) =>
-                      setPlayerRows((prev) =>
-                        prev.map((row) =>
+                    onChange={async (e) => {
+                      const value = e.target.value ? Number(e.target.value) : null;
+                      let nextRows: typeof playerRows = [];
+                      setPlayerRows((prev) => {
+                        nextRows = prev.map((row) =>
                           row.id === player.id
                             ? {
                                 ...row,
-                                ambroseGroupNumber: e.target.value ? Number(e.target.value) : null
+                                ambroseGroupNumber: value
                               }
                             : row
-                        )
-                      )
-                    }
+                        );
+                        return nextRows;
+                      });
+                      await saveAmbroseGroupsForRows(nextRows);
+                    }}
                     className="w-24 bg-white px-3 py-2"
                   >
                     <option value="">-</option>
@@ -482,6 +550,38 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                       <option key={num} value={num}>
                         {num}
                       </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Round 1 Group</label>
+                  <select
+                    value={player.round1GroupNumber ?? ""}
+                    onChange={async (e) => {
+                      const value = e.target.value ? Number(e.target.value) : null;
+                      setPlayerRows((prev) => prev.map((row) => row.id === player.id ? { ...row, round1GroupNumber: value } : row));
+                      await saveRoundGroup(player.id, 1, value);
+                    }}
+                    className="w-24 bg-white px-3 py-2"
+                  >
+                    <option value="">-</option>
+                    {[1, 2, 3, 4].map((num) => (
+                      <option key={`r1-${num}`} value={num}>{num}</option>
+                    ))}
+                  </select>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Round 2 Group</label>
+                  <select
+                    value={player.round2GroupNumber ?? ""}
+                    onChange={async (e) => {
+                      const value = e.target.value ? Number(e.target.value) : null;
+                      setPlayerRows((prev) => prev.map((row) => row.id === player.id ? { ...row, round2GroupNumber: value } : row));
+                      await saveRoundGroup(player.id, 2, value);
+                    }}
+                    className="w-24 bg-white px-3 py-2"
+                  >
+                    <option value="">-</option>
+                    {[1, 2, 3, 4].map((num) => (
+                      <option key={`r2-${num}`} value={num}>{num}</option>
                     ))}
                   </select>
                 </div>
@@ -521,12 +621,14 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                             max={settings.maxInputStrokes}
                             defaultValue={existing?.strokesRaw ?? ""}
                             className="mt-1 w-full bg-white"
+                            onBlur={(e) => e.currentTarget.form?.requestSubmit()}
                           />
                           {settings.activeRoundNumber === 2 && (
                             <select
                               name={`drive_${hole.hole}`}
                               defaultValue={existingDrive}
                               className="mt-1 w-full bg-white px-2 py-1"
+                              onChange={(e) => e.currentTarget.form?.requestSubmit()}
                             >
                               <option value="">Drive by...</option>
                               {player.ambroseDriveOptions.map((option) => (
@@ -540,11 +642,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                       );
                     })}
                   </div>
-                  <div className="mt-3">
-                    <button className="btn-primary" type="submit">
-                      Save Hole Scores
-                    </button>
-                  </div>
+                  <div className="mt-3 text-xs text-slate-600">Scores auto-save when changed.</div>
                 </form>
               </details>
               <details className="mt-3 rounded-xl border border-slate-200 bg-white/70 p-3">

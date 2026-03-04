@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
         where: { id: player.userId },
         data: {
           username: parsed.data.username,
-          passwordHash: hashSecret(parsed.data.pin)
+          ...(parsed.data.pin ? { passwordHash: hashSecret(parsed.data.pin) } : {})
         }
       }),
       prisma.player.update({
