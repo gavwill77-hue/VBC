@@ -38,7 +38,7 @@ body::before {
 button,
 input:not([type="checkbox"]):not([type="radio"]),
 select {
-  @apply rounded-xl border px-3 py-2 text-base;
+  @apply rounded-xl border px-3 py-2.5 text-base;
   border-color: var(--line);
 }
 
@@ -58,7 +58,7 @@ h2 {
 .panel {
   background: var(--panel);
   border-color: rgba(255, 255, 255, 0.9);
-  @apply rounded-3xl border p-5 shadow-[0_16px_45px_rgba(15,23,42,0.14)] backdrop-blur-md;
+  @apply rounded-3xl border p-4 shadow-[0_16px_45px_rgba(15,23,42,0.14)] backdrop-blur-md sm:p-5;
 }
 
 .panel-tight {
@@ -69,15 +69,15 @@ h2 {
 
 .btn-primary {
   background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);
-  @apply inline-flex items-center justify-center rounded-full border border-transparent px-4 py-2 font-semibold text-white shadow-md hover:-translate-y-0.5 hover:shadow-lg;
+  @apply inline-flex min-h-11 items-center justify-center rounded-full border border-transparent px-4 py-2.5 font-semibold text-white shadow-md hover:-translate-y-0.5 hover:shadow-lg;
 }
 
 .btn-secondary {
-  @apply inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 shadow-sm hover:bg-slate-50;
+  @apply inline-flex min-h-11 items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2.5 font-medium text-slate-700 shadow-sm hover:bg-slate-50;
 }
 
 .btn-danger {
-  @apply inline-flex items-center justify-center rounded-full border border-red-300 bg-red-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-red-700;
+  @apply inline-flex min-h-11 items-center justify-center rounded-full border border-red-300 bg-red-600 px-4 py-2.5 font-semibold text-white shadow-sm hover:bg-red-700;
 }
 
 .pill {
@@ -86,6 +86,10 @@ h2 {
 
 .data-table {
   @apply min-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white/90 text-sm;
+}
+
+.mobile-sticky-actions {
+  @apply sticky bottom-3 z-20 rounded-2xl border border-white/80 bg-white/90 p-2 shadow-xl backdrop-blur md:static md:border-0 md:bg-transparent md:p-0 md:shadow-none;
 }
 
 .data-table th {

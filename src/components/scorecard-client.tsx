@@ -159,9 +159,10 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
     <div className="space-y-5">
       <section className="panel">
         <p className="pill w-fit">Player View</p>
-        <h1 className="mt-2 text-4xl font-semibold leading-tight">{data.event.name}</h1>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight sm:text-4xl">{data.event.name}</h1>
         <p className="mt-1 text-sm text-slate-600">{data.player.name}</p>
-        <div className="mt-3 flex gap-2">
+        <div className="mobile-sticky-actions mt-3">
+          <div className="grid grid-cols-2 gap-2">
           <button
             className={selectedRound === 1 ? "btn-primary" : "btn-secondary"}
             onClick={() => void refresh(1)}
@@ -176,6 +177,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
               Round 2
             </button>
           )}
+          </div>
         </div>
         <p className="mt-3 text-sm text-slate-600">
           Active round is {data.event.activeRoundNumber}. Viewing round {selectedRound}.

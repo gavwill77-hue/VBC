@@ -39,11 +39,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en-AU">
       <body className={`${sans.variable} ${serif.variable} min-h-screen`}>
         <header className="sticky top-0 z-10 border-b border-white/60 bg-[#fffcf6]/80 backdrop-blur-xl">
-          <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-            <Link href="/leaderboard" className="font-serif text-2xl font-semibold tracking-tight text-slate-900">
+          <nav className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-4">
+            <Link href="/leaderboard" className="font-serif text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
               {appName} <span className="text-base text-teal-700">Live</span>
             </Link>
-            <div className="flex items-center gap-2 text-sm font-medium">
+            <div className="flex w-full flex-wrap items-center gap-2 text-sm font-medium sm:w-auto sm:justify-end">
               {session ? (
                 <>
                   {session.role === "ADMIN" && <Link className="btn-secondary" href="/admin">Admin</Link>}

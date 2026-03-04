@@ -236,7 +236,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
     <div className="space-y-6">
       <section className="panel">
         <p className="pill w-fit">Admin</p>
-        <h2 className="mt-2 text-3xl font-semibold">Event Settings</h2>
+        <h2 className="mt-2 text-2xl font-semibold sm:text-3xl">Event Settings</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="text-sm">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Event Name</span>
@@ -329,22 +329,24 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
             />
           </label>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button className="btn-primary" onClick={saveSettings}>Save Settings</button>
-          <button onClick={createEventFromSettings} className="btn-secondary">
-            Create New Event
-          </button>
-          <a href="/admin/help" className="btn-secondary">
-            Admin Help
-          </a>
-          <a href="/api/admin/export/leaderboard" className="btn-secondary">
-            Export Leaderboard CSV
-          </a>
+        <div className="mobile-sticky-actions mt-4">
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+            <button className="btn-primary" onClick={saveSettings}>Save Settings</button>
+            <button onClick={createEventFromSettings} className="btn-secondary">
+              Create New Event
+            </button>
+            <a href="/admin/help" className="btn-secondary">
+              Admin Help
+            </a>
+            <a href="/api/admin/export/leaderboard" className="btn-secondary">
+              Export Leaderboard CSV
+            </a>
+          </div>
         </div>
       </section>
 
       <section className="panel">
-        <h2 className="text-3xl font-semibold">Weekend History</h2>
+        <h2 className="text-2xl font-semibold sm:text-3xl">Weekend History</h2>
         <p className="mt-1 text-sm text-slate-600">Past weekends are preserved. Activate one to view/edit that weekend.</p>
         <div className="mt-4 space-y-2">
           {events.map((weekend) => (
@@ -368,8 +370,8 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
       </section>
 
       <section className="panel">
-        <h2 className="text-3xl font-semibold">Players</h2>
-        <div className="mt-3 flex items-center justify-between">
+        <h2 className="text-2xl font-semibold sm:text-3xl">Players</h2>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-600">Round 2 Ambrose groups are set manually. Pair players into group numbers (1-8).</p>
           <button type="button" className="btn-primary" onClick={saveAmbroseGroups}>
             Save Ambrose Groups
@@ -389,11 +391,11 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                   updatePlayer(player.id, new FormData(e.currentTarget));
                 }}
               >
-                <div className="grid gap-2 md:grid-cols-4">
+                <div className="grid gap-2 lg:grid-cols-4">
                   <input name="name" defaultValue={player.name} placeholder="Player name" required className="bg-white px-4 py-3" />
                   <input name="username" defaultValue={player.username} placeholder="Username" required className="bg-white px-4 py-3" />
                   <input name="pin" placeholder="6 digit PIN" inputMode="numeric" pattern="[0-9]{6}" required className="bg-white px-4 py-3" />
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button className="btn-primary" type="submit">Save</button>
                     <a href={`/api/admin/export/player/${player.id}`} className="btn-secondary">
                       CSV

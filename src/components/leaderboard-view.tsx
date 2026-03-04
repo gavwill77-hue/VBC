@@ -74,7 +74,7 @@ export function LeaderboardView() {
     <div className="space-y-6">
       <section className="panel relative overflow-hidden">
         <div className="absolute right-0 top-0 h-28 w-28 -translate-y-8 translate-x-8 rounded-full bg-orange-200/50 blur-2xl" />
-        <h1 className="relative text-4xl font-semibold leading-tight">{data.event.name}</h1>
+        <h1 className="relative text-3xl font-semibold leading-tight sm:text-4xl">{data.event.name}</h1>
         <p className="relative mt-2 text-sm text-slate-600">Weekend aggregate leaderboard with dedicated Day 2 Ambrose team view.</p>
         <div className="relative mt-3 flex flex-wrap gap-2">
           <span className="pill">Active round: {data.event.activeRoundNumber}</span>
@@ -83,7 +83,8 @@ export function LeaderboardView() {
           <span className="pill">Exclude &gt; double bogey {data.event.settings.excludeWorseThanDoubleBogey ? "ON" : "OFF"}</span>
           <span className="pill">{data.event.settings.callawayTableVersion}</span>
         </div>
-        <div className="relative mt-4 flex flex-wrap gap-2">
+        <div className="mobile-sticky-actions relative mt-4">
+          <div className="flex flex-wrap gap-2">
           <button className={mode === "weekend" ? "btn-primary" : "btn-secondary"} onClick={() => setMode("weekend")}>
             Weekend Total
           </button>
@@ -93,13 +94,30 @@ export function LeaderboardView() {
           <button className={mode === "round2" ? "btn-primary" : "btn-secondary"} onClick={() => setMode("round2")}>
             Round 2 Ambrose
           </button>
+          </div>
         </div>
       </section>
 
       {mode === "round2" && (
         <section className="panel">
           <h2 className="text-2xl font-semibold">Round 2 Ambrose Team Leaderboard</h2>
-          <div className="mt-3 overflow-x-auto">
+          <ol className="mt-3 grid gap-2 md:hidden">
+            {data.round2.teams.map((team) => (
+              <li key={team.groupId} className="panel-tight">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold">#{team.place} Group {team.groupNumber}</p>
+                  <p className="text-lg font-bold text-orange-700">{team.netScore}</p>
+                </div>
+                <p className="mt-1 text-xs text-slate-600">{team.players.join(", ")}</p>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-600">
+                  <p>Holes: <span className="font-semibold text-slate-800">{team.holesCompleted}</span></p>
+                  <p>Gross: <span className="font-semibold text-slate-800">{team.grossTotal}</span></p>
+                  <p>Hcp: <span className="font-semibold text-slate-800">{team.handicap}</span></p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-3 hidden overflow-x-auto md:block">
             <table className="data-table">
               <thead>
                 <tr>
@@ -134,7 +152,33 @@ export function LeaderboardView() {
         <h2 className="text-2xl font-semibold">
           {mode === "weekend" ? "Weekend Total - Net Leaderboard" : mode === "round1" ? "Round 1 - Net Leaderboard" : "Round 2 - Player Net View"}
         </h2>
-        <div className="mt-2 overflow-x-auto">
+        <ol className="mt-3 grid gap-2 md:hidden">
+          {selected.net.map((row) => (
+            <li key={row.playerId} className="panel-tight">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{row.place}</p>
+                  <a href={`/player/${row.playerId}`} className="font-semibold text-teal-700 underline-offset-4 hover:underline">
+                    {row.playerName}
+                  </a>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">Net</p>
+                  <p className="text-lg font-bold text-orange-700">{row.netScore.toFixed(1)}</p>
+                </div>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-600">
+                <p>Holes: <span className="font-semibold text-slate-800">{row.holesCompleted}</span></p>
+                <p>Total: <span className="font-semibold text-slate-800">{row.grossTotal}</span></p>
+                <p>-/+: <span className="font-semibold text-slate-800">{formatToPar(row.grossToPar)}</span></p>
+                <p>F9: <span className="font-semibold text-slate-800">{row.frontNine}</span></p>
+                <p>B9: <span className="font-semibold text-slate-800">{row.backNine}</span></p>
+                <p>Hcp: <span className="font-semibold text-slate-800">{row.handicapAllowance.toFixed(1)}</span></p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-2 hidden overflow-x-auto md:block">
           <table className="data-table">
             <thead>
               <tr>
