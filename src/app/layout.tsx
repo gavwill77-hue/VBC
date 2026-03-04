@@ -19,13 +19,20 @@ export const metadata = {
   description: "Callaway scoring for 16 players"
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
-  const activeEvent = await prisma.event.findFirst({
-    where: { isActive: true },
-    orderBy: { createdAt: "desc" },
-    select: { name: true }
-  });
+  let activeEvent: { name: string } | null = null;
+  try {
+    activeEvent = await prisma.event.findFirst({
+      where: { isActive: true },
+      orderBy: { createdAt: "desc" },
+      select: { name: true }
+    });
+  } catch {
+    activeEvent = null;
+  }
   const appName = activeEvent?.name ?? "Golf Weekend";
 
   return (
