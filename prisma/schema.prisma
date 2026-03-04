@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PLAYER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  role         Role
+  players      Player[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Event {
+  id                           String    @id @default(cuid())
+  name                         String
+  eventDate                    DateTime
+  isActive                     Boolean   @default(true)
+  totalRounds                  Int       @default(2)
+  activeRoundNumber            Int       @default(1)
+  roundStartHole               Int       @default(1)
+  maxDoubleParEnabled          Boolean   @default(true)
+  capDeductionPerHoleDoublePar Boolean   @default(true)
+  excludeWorseThanDoubleBogey  Boolean   @default(false)
+  maxInputStrokes              Int       @default(20)
+  callawayTableVersion         String    @default("par72_liveabout_v1")
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+  players                      Player[]
+  ambroseGroups                AmbroseGroup[]
+}
+
+model Player {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  order     Int
+  rounds    Round[]
+  ambroseMembership AmbroseGroupMember?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([eventId, order])
+  @@unique([eventId, userId])
+}
+
+model AmbroseGroup {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  groupNumber Int
+  members     AmbroseGroupMember[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([eventId, groupNumber])
+}
+
+model AmbroseGroupMember {
+  id        String      @id @default(cuid())
+  groupId   String
+  group     AmbroseGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  playerId  String      @unique
+  player    Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model Round {
+  id                        String      @id @default(cuid())
+  playerId                  String
+  player                    Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  roundNumber               Int         @default(1)
+  startHole                 Int         @default(1)
+  status                    RoundStatus @default(IN_PROGRESS)
+  lockedByAdmin             Boolean     @default(false)
+  adjustedGross             Int?
+  grossTotal                Int?
+  handicapAllowance         Float?
+  netScore                  Float?
+  entitlement               String?
+  adjustmentFactor          Float?
+  calcInputsJson            String?
+  calculationVersion        String      @default("callaway_par72_allholes_v1")
+  lastCalculatedAt          DateTime?
+  createdAt                 DateTime    @default(now())
+  updatedAt                 DateTime    @updatedAt
+  scores                    HoleScore[]
+
+  @@unique([playerId, roundNumber])
+}
+
+enum RoundStatus {
+  IN_PROGRESS
+  COMPLETE
+}
+
+model HoleScore {
+  id             String   @id @default(cuid())
+  roundId        String
+  round          Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  holeNumber     Int
+  strokesRaw     Int
+  strokesAdjusted Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([roundId, holeNumber])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  actor       User     @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  action      String
+  targetId    String?
+  payloadJson String?
+  createdAt   DateTime @default(now())
+}

@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg: #f4efe4;
+  --bg-2: #f9f6ee;
+  --ink: #1e293b;
+  --brand: #0f766e;
+  --brand-dark: #115e59;
+  --accent: #ea580c;
+  --line: #cbd5e1;
+  --panel: rgba(255, 255, 255, 0.82);
+}
+
+body {
+  font-family: var(--font-sans), sans-serif;
+  background:
+    radial-gradient(circle at 12% -8%, #fde68a 0%, transparent 35%),
+    radial-gradient(circle at 90% 0%, #99f6e4 0%, transparent 30%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+  color: var(--ink);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.1) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(circle at center, black 20%, transparent 90%);
+}
+
+button,
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  @apply rounded-xl border px-3 py-2 text-base;
+  border-color: var(--line);
+}
+
+button {
+  @apply transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+input[type="checkbox"] {
+  @apply h-4 w-4 rounded border-slate-300 accent-teal-700;
+}
+
+h1,
+h2 {
+  font-family: var(--font-serif), serif;
+}
+
+.panel {
+  background: var(--panel);
+  border-color: rgba(255, 255, 255, 0.9);
+  @apply rounded-3xl border p-5 shadow-[0_16px_45px_rgba(15,23,42,0.14)] backdrop-blur-md;
+}
+
+.panel-tight {
+  background: var(--panel);
+  border-color: rgba(255, 255, 255, 0.9);
+  @apply rounded-2xl border p-3 shadow-[0_10px_20px_rgba(15,23,42,0.08)] backdrop-blur-md;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);
+  @apply inline-flex items-center justify-center rounded-full border border-transparent px-4 py-2 font-semibold text-white shadow-md hover:-translate-y-0.5 hover:shadow-lg;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 shadow-sm hover:bg-slate-50;
+}
+
+.btn-danger {
+  @apply inline-flex items-center justify-center rounded-full border border-red-300 bg-red-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-red-700;
+}
+
+.pill {
+  @apply inline-flex items-center rounded-full border border-slate-300 bg-white/85 px-3 py-1 text-xs font-semibold tracking-wide text-slate-700;
+}
+
+.data-table {
+  @apply min-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white/90 text-sm;
+}
+
+.data-table th {
+  @apply border-b border-slate-200 bg-slate-50/80 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600;
+}
+
+.data-table td {
+  @apply border-b border-slate-100 px-3 py-2;
+}
+
+.data-table tr:last-child td {
+  @apply border-b-0;
+}
