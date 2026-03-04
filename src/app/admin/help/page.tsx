@@ -43,6 +43,7 @@ export default async function AdminHelpPage() {
           <p><span className="font-semibold">Cap deduction per hole at double par:</span> Limits the deduction amount any single hole can contribute to 2 x par.</p>
           <p><span className="font-semibold">Exclude scores above double par from Callaway deductions:</span> Holes above double par are not deductible and always count at full value in round scoring.</p>
           <p><span className="font-semibold">Max input strokes:</span> Validation limit for hole entry (players and admin).</p>
+          <p><span className="font-semibold">Required drives per player (Round 2):</span> Sets the target number of tee drives each player should contribute in Ambrose.</p>
           <p><span className="font-semibold">Round start:</span> Applies to the whole round/event (1st or 10th), not per player.</p>
         </div>
       </section>

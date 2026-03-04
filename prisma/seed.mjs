@@ -37,6 +37,7 @@ async function main() {
       maxDoubleParEnabled: true,
       capDeductionPerHoleDoublePar: true,
       excludeWorseThanDoubleBogey: false,
+      ambroseRequiredDrivesPerPlayer: 6,
       maxInputStrokes: 20,
       callawayTableVersion: "par72_liveabout_v1"
     }

@@ -11,6 +11,7 @@ const schema = z.object({
   maxDoubleParEnabled: z.boolean(),
   capDeductionPerHoleDoublePar: z.boolean(),
   excludeWorseThanDoubleBogey: z.boolean(),
+  ambroseRequiredDrivesPerPlayer: z.number().int().min(1).max(18),
   maxInputStrokes: z.number().int().min(10).max(30)
 });
 
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
       maxDoubleParEnabled: parsed.data.maxDoubleParEnabled,
       capDeductionPerHoleDoublePar: parsed.data.capDeductionPerHoleDoublePar,
       excludeWorseThanDoubleBogey: parsed.data.excludeWorseThanDoubleBogey,
+      ambroseRequiredDrivesPerPlayer: parsed.data.ambroseRequiredDrivesPerPlayer,
       maxInputStrokes: parsed.data.maxInputStrokes,
       callawayTableVersion: "par72_liveabout_v1"
     }

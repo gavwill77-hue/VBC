@@ -7,13 +7,60 @@ import { prisma } from "@/lib/db";
 
 const scoreSchema = z.object({
   holeNumber: z.number().int().min(1).max(18),
-  strokes: z.number().int().min(1).max(50)
+  strokes: z.number().int().min(1).max(50).optional(),
+  firstDrivePlayerId: z.string().min(1).nullable().optional()
+}).refine((value) => value.strokes !== undefined || value.firstDrivePlayerId !== undefined, {
+  message: "Provide strokes or firstDrivePlayerId"
 });
 
 const payloadSchema = z.object({
   playerId: z.string().min(1),
   scores: z.array(scoreSchema).min(1)
 });
+
+async function applyUpdatesToRound(roundId: string, maxDoubleParEnabled: boolean, updates: Array<z.infer<typeof scoreSchema>>) {
+  for (const update of updates) {
+    const existing = await prisma.holeScore.findUnique({
+      where: {
+        roundId_holeNumber: {
+          roundId,
+          holeNumber: update.holeNumber
+        }
+      }
+    });
+
+    if (!existing && update.strokes === undefined) {
+      throw new Error(`Enter strokes for hole ${update.holeNumber} before assigning first drive.`);
+    }
+
+    const nextRaw = update.strokes ?? existing!.strokesRaw;
+    const nextAdjusted = adjustedStrokesForInput(nextRaw, update.holeNumber, maxDoubleParEnabled);
+    const nextFirstDrivePlayerId = update.firstDrivePlayerId !== undefined
+      ? update.firstDrivePlayerId
+      : (existing?.firstDrivePlayerId ?? null);
+
+    if (existing) {
+      await prisma.holeScore.update({
+        where: { id: existing.id },
+        data: {
+          strokesRaw: nextRaw,
+          strokesAdjusted: nextAdjusted,
+          firstDrivePlayerId: nextFirstDrivePlayerId
+        }
+      });
+    } else {
+      await prisma.holeScore.create({
+        data: {
+          roundId,
+          holeNumber: update.holeNumber,
+          strokesRaw: nextRaw,
+          strokesAdjusted: nextAdjusted,
+          firstDrivePlayerId: nextFirstDrivePlayerId
+        }
+      });
+    }
+  }
+}
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
@@ -55,43 +102,22 @@ export async function POST(request: NextRequest) {
   }
 
   for (const score of parsed.data.scores) {
-    if (score.strokes > player.event.maxInputStrokes) {
+    if (score.strokes !== undefined && score.strokes > player.event.maxInputStrokes) {
       return NextResponse.json({ error: `Max input strokes is ${player.event.maxInputStrokes}` }, { status: 400 });
     }
   }
-
-  await prisma.$transaction(
-    parsed.data.scores.map((score) =>
-      prisma.holeScore.upsert({
-        where: {
-          roundId_holeNumber: {
-            roundId: round.id,
-            holeNumber: score.holeNumber
-          }
-        },
-        update: {
-          strokesRaw: score.strokes,
-          strokesAdjusted: adjustedStrokesForInput(score.strokes, score.holeNumber, player.event.maxDoubleParEnabled)
-        },
-        create: {
-          roundId: round.id,
-          holeNumber: score.holeNumber,
-          strokesRaw: score.strokes,
-          strokesAdjusted: adjustedStrokesForInput(score.strokes, score.holeNumber, player.event.maxDoubleParEnabled)
-        }
-      })
-    )
-  );
-
-  const freshRound = await prisma.round.findUniqueOrThrow({
-    where: { id: round.id },
-    include: { scores: true }
-  });
 
   if (player.event.activeRoundNumber === 2) {
     const membership = await getPlayerAmbroseGroup(player.id);
     if (membership) {
       const teammatePlayerIds = membership.group.members.map((member) => member.playerId);
+      const allowedDriveIds = new Set(teammatePlayerIds);
+      for (const score of parsed.data.scores) {
+        if (score.firstDrivePlayerId !== undefined && score.firstDrivePlayerId !== null && !allowedDriveIds.has(score.firstDrivePlayerId)) {
+          return NextResponse.json({ error: "First drive player must be from the Ambrose pair" }, { status: 400 });
+        }
+      }
+
       const teammateRounds = await prisma.round.findMany({
         where: {
           playerId: { in: teammatePlayerIds },
@@ -116,29 +142,7 @@ export async function POST(request: NextRequest) {
 
       const rounds = [...roundByPlayer.values()];
       for (const teammateRound of rounds) {
-        if (teammateRound.id === freshRound.id) continue;
-        await prisma.$transaction(
-          parsed.data.scores.map((score) =>
-            prisma.holeScore.upsert({
-              where: {
-                roundId_holeNumber: {
-                  roundId: teammateRound.id,
-                  holeNumber: score.holeNumber
-                }
-              },
-              update: {
-                strokesRaw: score.strokes,
-                strokesAdjusted: adjustedStrokesForInput(score.strokes, score.holeNumber, player.event.maxDoubleParEnabled)
-              },
-              create: {
-                roundId: teammateRound.id,
-                holeNumber: score.holeNumber,
-                strokesRaw: score.strokes,
-                strokesAdjusted: adjustedStrokesForInput(score.strokes, score.holeNumber, player.event.maxDoubleParEnabled)
-              }
-            })
-          )
-        );
+        await applyUpdatesToRound(teammateRound.id, player.event.maxDoubleParEnabled, parsed.data.scores);
       }
 
       const refreshedPrimary = await prisma.round.findUniqueOrThrow({
@@ -187,6 +191,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  await applyUpdatesToRound(round.id, player.event.maxDoubleParEnabled, parsed.data.scores);
+
+  const freshRound = await prisma.round.findUniqueOrThrow({
+    where: { id: round.id },
+    include: { scores: true }
+  });
+
   const callaway = calculateCallawayResult(
     freshRound.scores.map((score) => ({
       holeNumber: score.holeNumber,
@@ -219,7 +230,8 @@ export async function POST(request: NextRequest) {
         scores: freshRound.scores.map((score) => ({
           hole: score.holeNumber,
           raw: score.strokesRaw,
-          adjusted: score.strokesAdjusted
+          adjusted: score.strokesAdjusted,
+          firstDrivePlayerId: score.firstDrivePlayerId
         }))
       }),
       lastCalculatedAt: new Date()

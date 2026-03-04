@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
       maxDoubleParEnabled: parsed.data.maxDoubleParEnabled,
       capDeductionPerHoleDoublePar: parsed.data.capDeductionPerHoleDoublePar,
       excludeWorseThanDoubleBogey: parsed.data.excludeWorseThanDoubleBogey,
+      ambroseRequiredDrivesPerPlayer: parsed.data.ambroseRequiredDrivesPerPlayer,
       maxInputStrokes: parsed.data.maxInputStrokes
     }
   });

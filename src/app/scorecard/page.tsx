@@ -33,6 +33,7 @@ export default async function ScorecardPage() {
     handicap: number;
     grossTotal: number;
     netScore: number;
+    firstDriveOptions: Array<{ playerId: string; name: string }>;
   } = null;
 
   if (selectedRoundNumber === 2) {
@@ -47,7 +48,11 @@ export default async function ScorecardPage() {
         teammates: membership.group.members.map((member) => member.player.name),
         handicap,
         grossTotal,
-        netScore: grossTotal - handicap
+        netScore: grossTotal - handicap,
+        firstDriveOptions: membership.group.members.map((member) => ({
+          playerId: member.player.id,
+          name: member.player.name
+        }))
       };
     }
   }
@@ -90,7 +95,8 @@ export default async function ScorecardPage() {
           maxInputStrokes: player.event.maxInputStrokes,
           maxDoubleParEnabled: player.event.maxDoubleParEnabled,
           capDeductionPerHoleDoublePar: player.event.capDeductionPerHoleDoublePar,
-          excludeWorseThanDoubleBogey: player.event.excludeWorseThanDoubleBogey
+          excludeWorseThanDoubleBogey: player.event.excludeWorseThanDoubleBogey,
+          ambroseRequiredDrivesPerPlayer: player.event.ambroseRequiredDrivesPerPlayer
         },
         selectedRoundNumber,
         roundUnavailableReason,

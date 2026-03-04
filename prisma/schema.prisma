@@ -34,6 +34,7 @@ model Event {
   maxDoubleParEnabled          Boolean   @default(true)
   capDeductionPerHoleDoublePar Boolean   @default(true)
   excludeWorseThanDoubleBogey  Boolean   @default(false)
+  ambroseRequiredDrivesPerPlayer Int     @default(6)
   maxInputStrokes              Int       @default(20)
   callawayTableVersion         String    @default("par72_liveabout_v1")
   createdAt                    DateTime  @default(now())
@@ -117,6 +118,7 @@ model HoleScore {
   holeNumber     Int
   strokesRaw     Int
   strokesAdjusted Int
+  firstDrivePlayerId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

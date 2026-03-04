@@ -13,6 +13,7 @@ type ScoreData = {
     maxDoubleParEnabled: boolean;
     capDeductionPerHoleDoublePar: boolean;
     excludeWorseThanDoubleBogey: boolean;
+    ambroseRequiredDrivesPerPlayer: number;
   };
   selectedRoundNumber: 1 | 2;
   roundUnavailableReason: string | null;
@@ -22,7 +23,7 @@ type ScoreData = {
     startHole: 1 | 10;
     status: "IN_PROGRESS" | "COMPLETE";
     lockedByAdmin: boolean;
-    scores: Array<{ holeNumber: number; strokesRaw: number }>;
+    scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>;
     callaway: {
       grossTotal: number;
       adjustedGross: number;
@@ -42,6 +43,7 @@ type ScoreData = {
       handicap: number;
       grossTotal: number;
       netScore: number;
+      firstDriveOptions: Array<{ playerId: string; name: string }>;
     };
   };
 };
@@ -58,6 +60,10 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
 
   const scoreMap = useMemo(
     () => new Map((data.round?.scores ?? []).map((score) => [score.holeNumber, score.strokesRaw])),
+    [data.round?.scores]
+  );
+  const firstDriveMap = useMemo(
+    () => new Map((data.round?.scores ?? []).map((score) => [score.holeNumber, score.firstDrivePlayerId])),
     [data.round?.scores]
   );
 
@@ -122,13 +128,15 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
     localStorage.setItem(key, JSON.stringify(filtered));
   }
 
-  async function saveHole(holeNumber: number, strokes: number) {
+  async function saveHole(holeNumber: number, strokes?: number, firstDrivePlayerId?: string | null) {
     setSaving(true);
     setNote("");
 
     if (!navigator.onLine) {
-      writePending({ holeNumber, strokes });
-      setNote("Offline: saved locally and will sync when online");
+      if (strokes !== undefined) {
+        writePending({ holeNumber, strokes });
+      }
+      setNote("Offline: score saved locally and will sync when online");
       setSaving(false);
       return;
     }
@@ -136,7 +144,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
     const response = await fetch("/api/score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ holeNumber, strokes, roundNumber: selectedRound })
+      body: JSON.stringify({ holeNumber, strokes, firstDrivePlayerId, roundNumber: selectedRound })
     });
 
     if (!response.ok) {
@@ -155,6 +163,23 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
   const roundUnavailable = data.round === null;
   const currentRound = data.round;
 
+  const driveCounts = useMemo(() => {
+    if (!currentRound?.ambrose) return [];
+    const counts = new Map<string, number>();
+    for (const option of currentRound.ambrose.firstDriveOptions) {
+      counts.set(option.playerId, 0);
+    }
+    for (const score of currentRound.scores) {
+      if (score.firstDrivePlayerId && counts.has(score.firstDrivePlayerId)) {
+        counts.set(score.firstDrivePlayerId, (counts.get(score.firstDrivePlayerId) ?? 0) + 1);
+      }
+    }
+    return currentRound.ambrose.firstDriveOptions.map((option) => ({
+      ...option,
+      drives: counts.get(option.playerId) ?? 0
+    }));
+  }, [currentRound]);
+
   return (
     <div className="space-y-5">
       <section className="panel">
@@ -163,31 +188,17 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
         <p className="mt-1 text-sm text-slate-600">{data.player.name}</p>
         <div className="mobile-sticky-actions mt-3">
           <div className="grid grid-cols-2 gap-2">
-          <button
-            className={selectedRound === 1 ? "btn-primary" : "btn-secondary"}
-            onClick={() => void refresh(1)}
-          >
-            Round 1
-          </button>
-          {data.event.totalRounds >= 2 && (
-            <button
-              className={selectedRound === 2 ? "btn-primary" : "btn-secondary"}
-              onClick={() => void refresh(2)}
-            >
-              Round 2
-            </button>
-          )}
+            <button className={selectedRound === 1 ? "btn-primary" : "btn-secondary"} onClick={() => void refresh(1)}>Round 1</button>
+            {data.event.totalRounds >= 2 && (
+              <button className={selectedRound === 2 ? "btn-primary" : "btn-secondary"} onClick={() => void refresh(2)}>Round 2</button>
+            )}
           </div>
         </div>
-        <p className="mt-3 text-sm text-slate-600">
-          Active round is {data.event.activeRoundNumber}. Viewing round {selectedRound}.
-        </p>
+        <p className="mt-3 text-sm text-slate-600">Active round is {data.event.activeRoundNumber}. Viewing round {selectedRound}.</p>
         <p className="mt-2 text-sm text-slate-600">
           Max double par {data.event.maxDoubleParEnabled ? "ON" : "OFF"}. Deduction cap {data.event.capDeductionPerHoleDoublePar ? "ON" : "OFF"}. Exclude scores &gt; double par from deductions {data.event.excludeWorseThanDoubleBogey ? "ON" : "OFF"}.
         </p>
-        {roundLocked && (
-          <p className="mt-2 text-sm font-semibold text-orange-700">This round is locked and cannot be edited.</p>
-        )}
+        {roundLocked && <p className="mt-2 text-sm font-semibold text-orange-700">This round is locked and cannot be edited.</p>}
       </section>
 
       {roundUnavailable ? (
@@ -199,12 +210,25 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
         <>
           <section className="panel">
             <h2 className="text-2xl font-semibold">Hole Entry</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Start hole {currentRound!.startHole}. In progress: {currentRound!.scores.length}/18.
-            </p>
+            <p className="mt-2 text-sm text-slate-600">Start hole {currentRound!.startHole}. In progress: {currentRound!.scores.length}/18.</p>
+            {currentRound!.roundNumber === 2 && currentRound!.ambrose && (
+              <p className="mt-2 text-sm text-slate-700">
+                Required drives each: <span className="font-semibold">{data.event.ambroseRequiredDrivesPerPlayer}</span>
+              </p>
+            )}
+            {currentRound!.roundNumber === 2 && currentRound!.ambrose && driveCounts.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                {driveCounts.map((item) => (
+                  <span key={item.playerId} className="pill">
+                    {item.name}: {item.drives}/{data.event.ambroseRequiredDrivesPerPlayer}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {order.map((holeNumber) => {
                 const hole = HOLES.find((item) => item.hole === holeNumber)!;
+                const currentDrivePlayerId = firstDriveMap.get(holeNumber) ?? "";
                 return (
                   <label key={holeNumber} className="panel-tight text-sm">
                     <span className="font-semibold">Hole {holeNumber}</span> <span className="text-slate-500">(Par {hole.par})</span>
@@ -217,11 +241,29 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
                       onBlur={(e) => {
                         const value = Number(e.target.value);
                         if (Number.isInteger(value) && value >= 1 && value <= data.event.maxInputStrokes) {
-                          void saveHole(holeNumber, value);
+                          void saveHole(holeNumber, value, currentDrivePlayerId ? currentDrivePlayerId : null);
                         }
                       }}
                       disabled={saving || roundLocked}
                     />
+                    {currentRound!.roundNumber === 2 && currentRound!.ambrose && (
+                      <select
+                        className="mt-2 w-full bg-white px-3 py-2"
+                        value={currentDrivePlayerId}
+                        disabled={saving || roundLocked}
+                        onChange={(e) => {
+                          const driveId = e.target.value || null;
+                          void saveHole(holeNumber, undefined, driveId);
+                        }}
+                      >
+                        <option value="">First drive by...</option>
+                        {currentRound!.ambrose.firstDriveOptions.map((option) => (
+                          <option key={option.playerId} value={option.playerId}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </label>
                 );
               })}
@@ -239,9 +281,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
                 <p><span className="font-semibold">Round 1 position handicap:</span> {currentRound!.ambrose!.handicap}</p>
                 <p><span className="font-semibold">Ambrose gross:</span> {currentRound!.ambrose!.grossTotal}</p>
                 <p><span className="font-semibold">Ambrose net:</span> {currentRound!.ambrose!.netScore}</p>
-                <p className="font-semibold text-slate-700">
-                  Net = Gross ({currentRound!.ambrose!.grossTotal}) - Handicap ({currentRound!.ambrose!.handicap}) = {currentRound!.ambrose!.netScore}
-                </p>
+                <p className="font-semibold text-slate-700">Net = Gross ({currentRound!.ambrose!.grossTotal}) - Handicap ({currentRound!.ambrose!.handicap}) = {currentRound!.ambrose!.netScore}</p>
               </div>
             ) : (
               <>
@@ -255,12 +295,8 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
                   <p><span className="font-semibold">Handicap allowance:</span> {currentRound!.callaway.handicapAllowance.toFixed(1)}</p>
                   <p><span className="font-semibold">Table version:</span> {currentRound!.callaway.tableVersion}</p>
                 </div>
-                <p className="mt-3 text-sm font-semibold text-slate-700">
-                  Net = Adjusted Gross ({currentRound!.callaway.adjustedGross}) - Handicap Allowance ({currentRound!.callaway.handicapAllowance.toFixed(1)}) = {currentRound!.callaway.netScore.toFixed(1)}
-                </p>
-                {currentRound!.callaway.isMaxHandicapApplied && (
-                  <p className="mt-2 text-xs font-semibold text-orange-700">Maximum Callaway handicap of 50 applied.</p>
-                )}
+                <p className="mt-3 text-sm font-semibold text-slate-700">Net = Adjusted Gross ({currentRound!.callaway.adjustedGross}) - Handicap Allowance ({currentRound!.callaway.handicapAllowance.toFixed(1)}) = {currentRound!.callaway.netScore.toFixed(1)}</p>
+                {currentRound!.callaway.isMaxHandicapApplied && <p className="mt-2 text-xs font-semibold text-orange-700">Maximum Callaway handicap of 50 applied.</p>}
               </>
             )}
           </section>

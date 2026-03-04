@@ -164,6 +164,7 @@ export async function GET() {
         maxDoubleParEnabled: eventData.maxDoubleParEnabled,
         capDeductionPerHoleDoublePar: eventData.capDeductionPerHoleDoublePar,
         excludeWorseThanDoubleBogey: eventData.excludeWorseThanDoubleBogey,
+        ambroseRequiredDrivesPerPlayer: eventData.ambroseRequiredDrivesPerPlayer,
         callawayTableVersion: eventData.callawayTableVersion
       }
     },

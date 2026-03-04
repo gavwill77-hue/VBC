@@ -20,7 +20,7 @@ export default async function AdminPage() {
     include: {
       user: true,
       ambroseMembership: {
-        include: { group: true }
+        include: { group: { include: { members: { include: { player: true } } } } }
       },
       rounds: { include: { scores: true } }
     },
@@ -53,8 +53,13 @@ export default async function AdminPage() {
       roundOnePosition: roundOnePositionMap.get(player.id) ?? null,
       scores: (activeRound?.scores ?? []).map((score) => ({
         holeNumber: score.holeNumber,
-        strokesRaw: score.strokesRaw
-      }))
+        strokesRaw: score.strokesRaw,
+        firstDrivePlayerId: score.firstDrivePlayerId
+      })),
+      ambroseDriveOptions: player.ambroseMembership?.group.members.map((member) => ({
+        playerId: member.player.id,
+        name: member.player.name
+      })) ?? []
     };
   });
 
@@ -68,6 +73,7 @@ export default async function AdminPage() {
         maxDoubleParEnabled: event.maxDoubleParEnabled,
         capDeductionPerHoleDoublePar: event.capDeductionPerHoleDoublePar,
         excludeWorseThanDoubleBogey: event.excludeWorseThanDoubleBogey,
+        ambroseRequiredDrivesPerPlayer: event.ambroseRequiredDrivesPerPlayer,
         maxInputStrokes: event.maxInputStrokes
       }}
       events={events.map((item) => ({

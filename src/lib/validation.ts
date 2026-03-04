@@ -7,8 +7,11 @@ export const loginSchema = z.object({
 
 export const scoreEntrySchema = z.object({
   holeNumber: z.number().int().min(1).max(18),
-  strokes: z.number().int().min(1).max(50),
+  strokes: z.number().int().min(1).max(50).optional(),
+  firstDrivePlayerId: z.string().min(1).nullable().optional(),
   roundNumber: z.union([z.literal(1), z.literal(2)]).optional()
+}).refine((value) => value.strokes !== undefined || value.firstDrivePlayerId !== undefined, {
+  message: "Provide strokes or firstDrivePlayerId"
 });
 
 export const quickEntrySchema = z.object({
@@ -16,7 +19,8 @@ export const quickEntrySchema = z.object({
   scores: z.array(
     z.object({
       holeNumber: z.number().int().min(1).max(18),
-      strokes: z.number().int().min(1).max(50)
+      strokes: z.number().int().min(1).max(50),
+      firstDrivePlayerId: z.string().min(1).nullable().optional()
     })
   ).length(18)
 });
@@ -29,6 +33,7 @@ export const adminSettingsSchema = z.object({
   maxDoubleParEnabled: z.boolean(),
   capDeductionPerHoleDoublePar: z.boolean(),
   excludeWorseThanDoubleBogey: z.boolean(),
+  ambroseRequiredDrivesPerPlayer: z.number().int().min(1).max(18),
   maxInputStrokes: z.number().int().min(10).max(30)
 });
 

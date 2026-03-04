@@ -6,6 +6,11 @@ import { prisma } from "@/lib/db";
 import { quickEntrySchema, scoreEntrySchema } from "@/lib/validation";
 
 type RoundNumber = 1 | 2;
+type ScoreUpdate = {
+  holeNumber: number;
+  strokes?: number;
+  firstDrivePlayerId?: string | null;
+};
 
 function sanitiseRoundNumber(input: unknown, fallback: number, totalRounds: number): RoundNumber {
   const parsed = Number(input);
@@ -13,6 +18,50 @@ function sanitiseRoundNumber(input: unknown, fallback: number, totalRounds: numb
     return parsed;
   }
   return fallback === 2 ? 2 : 1;
+}
+
+async function applyUpdatesToRound(roundId: string, eventMaxDoubleParEnabled: boolean, updates: ScoreUpdate[]) {
+  for (const update of updates) {
+    const existing = await prisma.holeScore.findUnique({
+      where: {
+        roundId_holeNumber: {
+          roundId,
+          holeNumber: update.holeNumber
+        }
+      }
+    });
+
+    if (!existing && update.strokes === undefined) {
+      throw new Error(`Enter strokes for hole ${update.holeNumber} before assigning first drive.`);
+    }
+
+    const nextRaw = update.strokes ?? existing!.strokesRaw;
+    const nextAdjusted = adjustedStrokesForInput(nextRaw, update.holeNumber, eventMaxDoubleParEnabled);
+    const nextFirstDrivePlayerId = update.firstDrivePlayerId !== undefined
+      ? update.firstDrivePlayerId
+      : (existing?.firstDrivePlayerId ?? null);
+
+    if (existing) {
+      await prisma.holeScore.update({
+        where: { id: existing.id },
+        data: {
+          strokesRaw: nextRaw,
+          strokesAdjusted: nextAdjusted,
+          firstDrivePlayerId: nextFirstDrivePlayerId
+        }
+      });
+    } else {
+      await prisma.holeScore.create({
+        data: {
+          roundId,
+          holeNumber: update.holeNumber,
+          strokesRaw: nextRaw,
+          strokesAdjusted: nextAdjusted,
+          firstDrivePlayerId: nextFirstDrivePlayerId
+        }
+      });
+    }
+  }
 }
 
 async function getPlayerRound(userId: string, requestedRound?: RoundNumber) {
@@ -41,6 +90,7 @@ async function getPlayerRound(userId: string, requestedRound?: RoundNumber) {
     handicap: number;
     grossTotal: number;
     netScore: number;
+    firstDriveOptions: Array<{ playerId: string; name: string }>;
   } | null = null;
 
   if (selectedRoundNumber === 2) {
@@ -57,7 +107,11 @@ async function getPlayerRound(userId: string, requestedRound?: RoundNumber) {
       teammates: membership.group.members.map((member) => member.player.name),
       handicap,
       grossTotal,
-      netScore: grossTotal - handicap
+      netScore: grossTotal - handicap,
+      firstDriveOptions: membership.group.members.map((member) => ({
+        playerId: member.player.id,
+        name: member.player.name
+      }))
     };
   }
 
@@ -161,6 +215,7 @@ export async function POST(request: NextRequest) {
   if (mode === "single" && parsedSingle?.success) {
     roundNumber = parsedSingle.data.roundNumber;
   }
+
   const data = await getPlayerRound(user.id, roundNumber);
   if (!data) {
     return NextResponse.json({ error: "Player not found" }, { status: 404 });
@@ -173,15 +228,23 @@ export async function POST(request: NextRequest) {
   }
 
   const event = data.player.event;
-  let updates: Array<{ holeNumber: number; strokes: number }> = [];
+  let updates: ScoreUpdate[] = [];
   if (mode === "quick" && parsedQuick?.success) {
-    updates = parsedQuick.data.scores;
+    updates = parsedQuick.data.scores.map((entry) => ({
+      holeNumber: entry.holeNumber,
+      strokes: entry.strokes,
+      firstDrivePlayerId: entry.firstDrivePlayerId
+    }));
   } else if (mode === "single" && parsedSingle?.success) {
-    updates = [{ holeNumber: parsedSingle.data.holeNumber, strokes: parsedSingle.data.strokes }];
+    updates = [{
+      holeNumber: parsedSingle.data.holeNumber,
+      strokes: parsedSingle.data.strokes,
+      firstDrivePlayerId: parsedSingle.data.firstDrivePlayerId
+    }];
   }
 
   for (const update of updates) {
-    if (update.strokes > event.maxInputStrokes) {
+    if (update.strokes !== undefined && update.strokes > event.maxInputStrokes) {
       return NextResponse.json({ error: `Max input strokes is ${event.maxInputStrokes}` }, { status: 400 });
     }
   }
@@ -193,6 +256,13 @@ export async function POST(request: NextRequest) {
     }
 
     const teammatePlayerIds = membership.group.members.map((member) => member.playerId);
+    const allowedDriveIds = new Set(teammatePlayerIds);
+    for (const update of updates) {
+      if (update.firstDrivePlayerId !== undefined && update.firstDrivePlayerId !== null && !allowedDriveIds.has(update.firstDrivePlayerId)) {
+        return NextResponse.json({ error: "First drive player must be from your Ambrose pair" }, { status: 400 });
+      }
+    }
+
     const existingTeammateRounds = await prisma.round.findMany({
       where: {
         playerId: { in: teammatePlayerIds },
@@ -221,28 +291,7 @@ export async function POST(request: NextRequest) {
 
     const rounds = [...roundByPlayer.values()];
     for (const round of rounds) {
-      await prisma.$transaction(
-        updates.map((update) =>
-          prisma.holeScore.upsert({
-            where: {
-              roundId_holeNumber: {
-                roundId: round.id,
-                holeNumber: update.holeNumber
-              }
-            },
-            update: {
-              strokesRaw: update.strokes,
-              strokesAdjusted: adjustedStrokesForInput(update.strokes, update.holeNumber, event.maxDoubleParEnabled)
-            },
-            create: {
-              roundId: round.id,
-              holeNumber: update.holeNumber,
-              strokesRaw: update.strokes,
-              strokesAdjusted: adjustedStrokesForInput(update.strokes, update.holeNumber, event.maxDoubleParEnabled)
-            }
-          })
-        )
-      );
+      await applyUpdatesToRound(round.id, event.maxDoubleParEnabled, updates);
     }
 
     const primaryRound = await prisma.round.findUniqueOrThrow({
@@ -285,28 +334,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  await prisma.$transaction(
-    updates.map((update) =>
-      prisma.holeScore.upsert({
-        where: {
-          roundId_holeNumber: {
-            roundId: data.round!.id,
-            holeNumber: update.holeNumber
-          }
-        },
-        update: {
-          strokesRaw: update.strokes,
-          strokesAdjusted: adjustedStrokesForInput(update.strokes, update.holeNumber, event.maxDoubleParEnabled)
-        },
-        create: {
-          roundId: data.round!.id,
-          holeNumber: update.holeNumber,
-          strokesRaw: update.strokes,
-          strokesAdjusted: adjustedStrokesForInput(update.strokes, update.holeNumber, event.maxDoubleParEnabled)
-        }
-      })
-    )
-  );
+  await applyUpdatesToRound(data.round.id, event.maxDoubleParEnabled, updates);
 
   const freshRound = await prisma.round.findUniqueOrThrow({
     where: { id: data.round.id },
@@ -344,7 +372,8 @@ export async function POST(request: NextRequest) {
         scores: freshRound.scores.map((score) => ({
           hole: score.holeNumber,
           raw: score.strokesRaw,
-          adjusted: score.strokesAdjusted
+          adjusted: score.strokesAdjusted,
+          firstDrivePlayerId: score.firstDrivePlayerId
         }))
       }),
       lastCalculatedAt: new Date()

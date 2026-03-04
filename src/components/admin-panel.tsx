@@ -13,6 +13,7 @@ type AdminPanelProps = {
     maxDoubleParEnabled: boolean;
     capDeductionPerHoleDoublePar: boolean;
     excludeWorseThanDoubleBogey: boolean;
+    ambroseRequiredDrivesPerPlayer: number;
     maxInputStrokes: number;
   };
   events: Array<{
@@ -31,7 +32,8 @@ type AdminPanelProps = {
     latestRoundId?: string;
     ambroseGroupNumber: number | null;
     roundOnePosition: number | null;
-    scores: Array<{ holeNumber: number; strokesRaw: number }>;
+    scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>;
+    ambroseDriveOptions: Array<{ playerId: string; name: string }>;
   }>;
 };
 
@@ -45,6 +47,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
     maxDoubleParEnabled: event.maxDoubleParEnabled,
     capDeductionPerHoleDoublePar: event.capDeductionPerHoleDoublePar,
     excludeWorseThanDoubleBogey: event.excludeWorseThanDoubleBogey,
+    ambroseRequiredDrivesPerPlayer: event.ambroseRequiredDrivesPerPlayer,
     maxInputStrokes: event.maxInputStrokes
   });
 
@@ -79,6 +82,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
         maxDoubleParEnabled: settings.maxDoubleParEnabled,
         capDeductionPerHoleDoublePar: settings.capDeductionPerHoleDoublePar,
         excludeWorseThanDoubleBogey: settings.excludeWorseThanDoubleBogey,
+        ambroseRequiredDrivesPerPlayer: settings.ambroseRequiredDrivesPerPlayer,
         maxInputStrokes: settings.maxInputStrokes
       })
     });
@@ -163,12 +167,20 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
   async function saveScores(playerId: string, form: FormData) {
     const scores = HOLES.map((hole) => {
       const value = form.get(`hole_${hole.hole}`);
+      const drive = String(form.get(`drive_${hole.hole}`) ?? "").trim();
       const parsed = Number(value);
-      if (!Number.isInteger(parsed) || parsed < 1) {
+      const hasStroke = Number.isInteger(parsed) && parsed >= 1;
+      const hasDrive = drive.length > 0;
+
+      if (!hasStroke && !hasDrive) {
         return null;
       }
-      return { holeNumber: hole.hole, strokes: parsed };
-    }).filter((item): item is { holeNumber: number; strokes: number } => !!item);
+      return {
+        holeNumber: hole.hole,
+        strokes: hasStroke ? parsed : undefined,
+        firstDrivePlayerId: hasDrive ? drive : null
+      };
+    }).filter((item) => !!item) as Array<{ holeNumber: number; strokes?: number; firstDrivePlayerId?: string | null }>;
 
     if (scores.length === 0) {
       setMessage("No hole scores entered");
@@ -188,7 +200,25 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
     }
 
     setPlayerRows((prev) =>
-      prev.map((row) => (row.id === playerId ? { ...row, scores: scores.map((score) => ({ holeNumber: score.holeNumber, strokesRaw: score.strokes })) } : row))
+      prev.map((row) => (row.id === playerId
+        ? {
+            ...row,
+            scores: HOLES.map((hole) => {
+              const existing = row.scores.find((entry) => entry.holeNumber === hole.hole);
+              const incoming = scores.find((entry) => entry.holeNumber === hole.hole);
+              if (!incoming && existing) return existing;
+              if (!incoming) {
+                return null;
+              }
+              if (!existing && incoming.strokes === undefined) return null;
+              return {
+                holeNumber: hole.hole,
+                strokesRaw: incoming.strokes ?? existing?.strokesRaw ?? 0,
+                firstDrivePlayerId: incoming.firstDrivePlayerId ?? existing?.firstDrivePlayerId ?? null
+              };
+            }).filter((entry): entry is { holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null } => !!entry)
+          }
+        : row))
     );
     setMessage("Scores saved");
   }
@@ -210,7 +240,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
     setMessage(response.ok ? "Ambrose groups saved" : "Failed to save Ambrose groups");
   }
 
-  function callawayForPlayer(scores: Array<{ holeNumber: number; strokesRaw: number }>) {
+  function callawayForPlayer(scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>) {
     return calculateCallawayResult(
       scores.map((score) => ({
         holeNumber: score.holeNumber,
@@ -225,7 +255,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
     );
   }
 
-  function ambroseForPlayer(playerId: string, scores: Array<{ holeNumber: number; strokesRaw: number }>) {
+  function ambroseForPlayer(playerId: string, scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>) {
     const player = playerRows.find((row) => row.id === playerId);
     if (!player || player.ambroseGroupNumber === null) return null;
 
@@ -339,6 +369,17 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
               className="mt-1 w-full bg-white px-4 py-3"
             />
           </label>
+          <label className="text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Required Drives Per Player (Round 2)</span>
+            <input
+              type="number"
+              min={1}
+              max={18}
+              value={settings.ambroseRequiredDrivesPerPlayer}
+              onChange={(e) => setSettings((s) => ({ ...s, ambroseRequiredDrivesPerPlayer: Number(e.target.value) }))}
+              className="mt-1 w-full bg-white px-4 py-3"
+            />
+          </label>
         </div>
         <div className="mobile-sticky-actions mt-4">
           <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
@@ -394,6 +435,10 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
               {(() => {
                 const calc = callawayForPlayer(player.scores);
                 const ambrose = ambroseForPlayer(player.id, player.scores);
+                const driveCounts = player.ambroseDriveOptions.map((option) => ({
+                  ...option,
+                  drives: player.scores.filter((score) => score.firstDrivePlayerId === option.playerId).length
+                }));
                 return (
                   <>
               <form
@@ -465,6 +510,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                     {HOLES.map((hole) => {
                       const existing = player.scores.find((score) => score.holeNumber === hole.hole);
+                      const existingDrive = player.scores.find((score) => score.holeNumber === hole.hole)?.firstDrivePlayerId ?? "";
                       return (
                         <label key={`${player.id}-${hole.hole}`} className="panel-tight text-xs font-semibold">
                           H{hole.hole} (P{hole.par})
@@ -476,6 +522,20 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                             defaultValue={existing?.strokesRaw ?? ""}
                             className="mt-1 w-full bg-white"
                           />
+                          {settings.activeRoundNumber === 2 && (
+                            <select
+                              name={`drive_${hole.hole}`}
+                              defaultValue={existingDrive}
+                              className="mt-1 w-full bg-white px-2 py-1"
+                            >
+                              <option value="">Drive by...</option>
+                              {player.ambroseDriveOptions.map((option) => (
+                                <option key={option.playerId} value={option.playerId}>
+                                  {option.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </label>
                       );
                     })}
@@ -495,6 +555,13 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
                     <p><span className="font-semibold">Group:</span> {ambrose.groupNumber}</p>
                     <p><span className="font-semibold">Teammates (Round 1 position):</span> {ambrose.teammates.join(", ")}</p>
                     <p><span className="font-semibold">Ambrose handicap (sum of Round 1 positions):</span> {ambrose.handicap}</p>
+                    <p><span className="font-semibold">Required drives each:</span> {settings.ambroseRequiredDrivesPerPlayer}</p>
+                    <p>
+                      <span className="font-semibold">Drive tally:</span>{" "}
+                      {driveCounts.length === 0
+                        ? "-"
+                        : driveCounts.map((entry) => `${entry.name} ${entry.drives}/${settings.ambroseRequiredDrivesPerPlayer}`).join(" | ")}
+                    </p>
                     <p><span className="font-semibold">Ambrose gross:</span> {ambrose.grossTotal}</p>
                     <p className="font-semibold text-slate-700">
                       Net = Gross ({ambrose.grossTotal}) - Handicap ({ambrose.handicap}) = {ambrose.netScore}

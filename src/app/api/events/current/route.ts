@@ -22,6 +22,7 @@ export async function GET() {
       maxDoubleParEnabled: event.maxDoubleParEnabled,
       capDeductionPerHoleDoublePar: event.capDeductionPerHoleDoublePar,
       excludeWorseThanDoubleBogey: event.excludeWorseThanDoubleBogey,
+      ambroseRequiredDrivesPerPlayer: event.ambroseRequiredDrivesPerPlayer,
       maxInputStrokes: event.maxInputStrokes,
       callawayTableVersion: event.callawayTableVersion
     }
