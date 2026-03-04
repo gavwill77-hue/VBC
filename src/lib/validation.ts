@@ -7,11 +7,18 @@ export const loginSchema = z.object({
 
 export const scoreEntrySchema = z.object({
   holeNumber: z.number().int().min(1).max(18),
-  strokes: z.number().int().min(1).max(50)
+  strokes: z.number().int().min(1).max(50),
+  roundNumber: z.union([z.literal(1), z.literal(2)]).optional()
 });
 
 export const quickEntrySchema = z.object({
-  scores: z.array(scoreEntrySchema).length(18)
+  roundNumber: z.union([z.literal(1), z.literal(2)]).optional(),
+  scores: z.array(
+    z.object({
+      holeNumber: z.number().int().min(1).max(18),
+      strokes: z.number().int().min(1).max(50)
+    })
+  ).length(18)
 });
 
 export const adminSettingsSchema = z.object({

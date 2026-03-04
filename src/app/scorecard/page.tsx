@@ -23,32 +23,10 @@ export default async function ScorecardPage() {
     return <p>Player profile missing.</p>;
   }
 
-  let round = player.rounds.find((candidate) => candidate.roundNumber === player.event.activeRoundNumber);
-  if (!round) {
-    round = await prisma.round.create({
-      data: {
-        playerId: player.id,
-        roundNumber: player.event.activeRoundNumber,
-        startHole: player.event.roundStartHole,
-        status: "IN_PROGRESS"
-      },
-      include: { scores: true }
-    });
-  }
+  const selectedRoundNumber = (player.event.activeRoundNumber as 1 | 2);
+  let roundUnavailableReason: string | null = null;
 
-  const callaway = calculateCallawayResult(
-    round.scores.map((score) => ({
-      holeNumber: score.holeNumber,
-      rawStrokes: score.strokesRaw,
-      adjustedStrokes: adjustedStrokesForInput(score.strokesRaw, score.holeNumber, player.event.maxDoubleParEnabled)
-    })),
-    {
-      maxDoubleParEnabled: player.event.maxDoubleParEnabled,
-      capDeductionPerHoleDoublePar: player.event.capDeductionPerHoleDoublePar,
-      excludeWorseThanDoubleBogey: player.event.excludeWorseThanDoubleBogey
-    }
-  );
-
+  let round = player.rounds.find((candidate) => candidate.roundNumber === selectedRoundNumber);
   let ambrose: null | {
     groupNumber: number;
     teammates: string[];
@@ -57,11 +35,13 @@ export default async function ScorecardPage() {
     netScore: number;
   } = null;
 
-  if (player.event.activeRoundNumber === 2) {
+  if (selectedRoundNumber === 2) {
     const membership = await getPlayerAmbroseGroup(player.id);
-    if (membership) {
+    if (!membership) {
+      roundUnavailableReason = "Round 2 score entry opens after admin allocates Ambrose pairs.";
+    } else {
       const handicap = await ambroseHandicapForGroup(membership.groupId);
-      const grossTotal = round.scores.reduce((sum, score) => sum + score.strokesRaw, 0);
+      const grossTotal = round?.scores.reduce((sum, score) => sum + score.strokesRaw, 0) ?? 0;
       ambrose = {
         groupNumber: membership.group.groupNumber,
         teammates: membership.group.members.map((member) => member.player.name),
@@ -71,6 +51,33 @@ export default async function ScorecardPage() {
       };
     }
   }
+
+  if (!roundUnavailableReason && !round) {
+    round = await prisma.round.create({
+      data: {
+        playerId: player.id,
+        roundNumber: selectedRoundNumber,
+        startHole: player.event.roundStartHole,
+        status: "IN_PROGRESS"
+      },
+      include: { scores: true }
+    });
+  }
+
+  const callaway = round
+    ? calculateCallawayResult(
+        round.scores.map((score) => ({
+          holeNumber: score.holeNumber,
+          rawStrokes: score.strokesRaw,
+          adjustedStrokes: adjustedStrokesForInput(score.strokesRaw, score.holeNumber, player.event.maxDoubleParEnabled)
+        })),
+        {
+          maxDoubleParEnabled: player.event.maxDoubleParEnabled,
+          capDeductionPerHoleDoublePar: player.event.capDeductionPerHoleDoublePar,
+          excludeWorseThanDoubleBogey: player.event.excludeWorseThanDoubleBogey
+        }
+      )
+    : null;
 
   return (
     <ScorecardClient
@@ -85,16 +92,20 @@ export default async function ScorecardPage() {
           capDeductionPerHoleDoublePar: player.event.capDeductionPerHoleDoublePar,
           excludeWorseThanDoubleBogey: player.event.excludeWorseThanDoubleBogey
         },
-        round: {
-          id: round.id,
-          startHole: round.startHole as 1 | 10,
-          roundNumber: round.roundNumber as 1 | 2,
-          status: round.status,
-          lockedByAdmin: round.lockedByAdmin,
-          scores: round.scores,
-          callaway,
-          ambrose
-        }
+        selectedRoundNumber,
+        roundUnavailableReason,
+        round: round && callaway
+          ? {
+              id: round.id,
+              startHole: round.startHole as 1 | 10,
+              roundNumber: round.roundNumber as 1 | 2,
+              status: round.status,
+              lockedByAdmin: round.lockedByAdmin,
+              scores: round.scores,
+              callaway,
+              ambrose
+            }
+          : null
       }}
     />
   );
