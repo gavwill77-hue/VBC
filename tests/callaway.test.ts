@@ -10,6 +10,50 @@ function fromRaw(rawByHole: number[]): HoleScoreInput[] {
   }));
 }
 
+function scoresForAdjustedGross(targetAdjustedGross: number): HoleScoreInput[] {
+  const base = HOLES.map((hole) => ({
+    holeNumber: hole.hole,
+    rawStrokes: hole.par,
+    adjustedStrokes: hole.par
+  }));
+  const baseTotal = base.reduce((sum, score) => sum + score.rawStrokes, 0);
+  const delta = targetAdjustedGross - baseTotal;
+  if (delta < 0) {
+    throw new Error("Target adjusted gross must be >= 72");
+  }
+  base[0].rawStrokes += delta;
+  base[0].adjustedStrokes += delta;
+  return base;
+}
+
+function expectedEntitlement(score: number): number {
+  if (score <= 72) return 0;
+  if (score <= 75) return 0.5;
+  if (score <= 80) return 1;
+  if (score <= 85) return 1.5;
+  if (score <= 90) return 2;
+  if (score <= 95) return 2.5;
+  if (score <= 100) return 3;
+  if (score <= 105) return 3.5;
+  if (score <= 110) return 4;
+  if (score <= 115) return 4.5;
+  if (score <= 120) return 5;
+  if (score <= 125) return 5.5;
+  if (score <= 130) return 6;
+  return 0;
+}
+
+function expectedAdjustment(score: number): number {
+  if (score <= 72) return 0;
+  if (score >= 131) return 0;
+  const cycle = [-2, -1, 0, 1, 2];
+  if (score <= 75) {
+    return cycle[score - 73];
+  }
+  const groupStart = 76 + Math.floor((score - 76) / 5) * 5;
+  return cycle[score - groupStart];
+}
+
 describe("Callaway calculation", () => {
   it("applies max double par when enabled", () => {
     const raw = Array.from({ length: 18 }, () => 4);
@@ -159,5 +203,31 @@ describe("Callaway calculation", () => {
     });
 
     expect(excluded.handicapAllowance).toBeLessThan(included.handicapAllowance);
+  });
+
+  it("uses 6 worst holes at adjusted gross 127 (par 72 table)", () => {
+    const result = calculateCallawayResult(scoresForAdjustedGross(127), {
+      maxDoubleParEnabled: false,
+      capDeductionPerHoleDoublePar: false,
+      excludeWorseThanDoubleBogey: false
+    });
+
+    expect(result.adjustedGross).toBe(127);
+    expect(result.entitlement).toBe(6);
+    expect(result.selectedHoleNumbers.length).toBe(6);
+  });
+
+  it("matches entitlement and adjustment across all par-72 Callaway score bands", () => {
+    for (let score = 72; score <= 130; score += 1) {
+      const result = calculateCallawayResult(scoresForAdjustedGross(score), {
+        maxDoubleParEnabled: false,
+        capDeductionPerHoleDoublePar: false,
+        excludeWorseThanDoubleBogey: false
+      });
+
+      expect(result.adjustedGross).toBe(score);
+      expect(result.entitlement).toBe(expectedEntitlement(score));
+      expect(result.adjustment).toBe(expectedAdjustment(score));
+    }
   });
 });
