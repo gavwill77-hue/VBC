@@ -67,28 +67,29 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState("");
   const [selectedRound, setSelectedRound] = useState<1 | 2>(initialData.selectedRoundNumber);
-  const [targetPlayerId, setTargetPlayerId] = useState<string>(initialData.targetPlayer?.id ?? initialData.player.id);
 
-  const activeScores = useMemo(() => {
-    const fromGroup = data.round?.scorerGroup?.members.find((member) => member.playerId === targetPlayerId)?.scores;
-    return fromGroup ?? data.round?.scores ?? [];
-  }, [data.round?.scores, data.round?.scorerGroup?.members, targetPlayerId]);
+  const currentRound = data.round;
+  const isGroupEntry = (currentRound?.scorerGroup?.members.length ?? 0) > 1;
 
-  const scoreMap = useMemo(() => new Map(activeScores.map((score) => [score.holeNumber, score.strokesRaw])), [activeScores]);
-  const firstDriveMap = useMemo(() => new Map(activeScores.map((score) => [score.holeNumber, score.firstDrivePlayerId])), [activeScores]);
+  const scoreMap = useMemo(
+    () => new Map((currentRound?.scores ?? []).map((score) => [score.holeNumber, score.strokesRaw])),
+    [currentRound?.scores]
+  );
+  const firstDriveMap = useMemo(
+    () => new Map((currentRound?.scores ?? []).map((score) => [score.holeNumber, score.firstDrivePlayerId])),
+    [currentRound?.scores]
+  );
 
-  const order = holeEntryOrder(data.round?.startHole ?? 1);
+  const order = holeEntryOrder(currentRound?.startHole ?? 1);
 
   const refresh = useCallback(async (roundNumber: 1 | 2) => {
-    const query = new URLSearchParams({ roundNumber: String(roundNumber), targetPlayerId });
-    const response = await fetch(`/api/score?${query.toString()}`);
+    const response = await fetch(`/api/score?roundNumber=${roundNumber}`);
     if (response.ok) {
       const next = (await response.json()) as ScoreData;
       setData(next);
       setSelectedRound(next.selectedRoundNumber);
-      setTargetPlayerId(next.targetPlayer?.id ?? next.player.id);
     }
-  }, [targetPlayerId]);
+  }, []);
 
   const syncPending = useCallback(async (entries: Array<{ holeNumber: number; strokes: number }>, roundNumber: 1 | 2) => {
     if (entries.length === 0) return;
@@ -96,7 +97,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
       const response = await fetch("/api/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "quick", roundNumber, scores: entries, targetPlayerId })
+        body: JSON.stringify({ mode: "quick", roundNumber, scores: entries, targetPlayerId: data.player.id })
       });
       if (response.ok) {
         localStorage.removeItem(storageKey(roundNumber));
@@ -109,16 +110,12 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
       await fetch("/api/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...entry, roundNumber, targetPlayerId })
+        body: JSON.stringify({ ...entry, roundNumber, targetPlayerId: data.player.id })
       });
     }
     localStorage.removeItem(storageKey(roundNumber));
     await refresh(roundNumber);
-  }, [refresh]);
-
-  useEffect(() => {
-    void refresh(selectedRound);
-  }, [selectedRound, refresh]);
+  }, [data.player.id, refresh]);
 
   useEffect(() => {
     const raw = localStorage.getItem(storageKey(selectedRound));
@@ -144,11 +141,22 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
     localStorage.setItem(key, JSON.stringify(filtered));
   }
 
-  async function saveHole(holeNumber: number, strokes?: number, firstDrivePlayerId?: string | null) {
+  function scoreForMember(memberPlayerId: string, holeNumber: number) {
+    return currentRound?.scorerGroup?.members
+      .find((member) => member.playerId === memberPlayerId)
+      ?.scores.find((score) => score.holeNumber === holeNumber);
+  }
+
+  async function saveHole(targetPlayerId: string, holeNumber: number, strokes?: number, firstDrivePlayerId?: string | null) {
     setSaving(true);
     setNote("");
 
     if (!navigator.onLine) {
+      if (targetPlayerId !== data.player.id) {
+        setNote("Offline group entry is unavailable. Reconnect to save group scores.");
+        setSaving(false);
+        return;
+      }
       if (strokes !== undefined) {
         writePending({ holeNumber, strokes });
       }
@@ -175,9 +183,8 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
     setNote("Saved");
   }
 
-  const roundLocked = !!data.round && (data.round.lockedByAdmin || data.round.status === "COMPLETE");
-  const roundUnavailable = data.round === null;
-  const currentRound = data.round;
+  const roundLocked = !!currentRound && (currentRound.lockedByAdmin || currentRound.status === "COMPLETE");
+  const roundUnavailable = currentRound === null;
   const isCallawayReady = !!currentRound && currentRound.roundNumber === 1 && currentRound.scores.length === 18;
 
   const driveCounts = useMemo(() => {
@@ -203,22 +210,10 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
         <p className="pill w-fit">Player View</p>
         <h1 className="mt-2 text-3xl font-semibold leading-tight sm:text-4xl">{data.event.name}</h1>
         <p className="mt-1 text-sm text-slate-600">{data.player.name}</p>
-        {!!currentRound?.scorerGroup && currentRound.scorerGroup.members.length > 1 && (
-          <label className="mt-2 block text-sm">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Entering scores for</span>
-            <select
-              className="mt-1 w-full bg-white px-3 py-2"
-              value={targetPlayerId}
-              onChange={(e) => {
-                setTargetPlayerId(e.target.value);
-                void refresh(selectedRound);
-              }}
-            >
-              {currentRound.scorerGroup.members.map((member) => (
-                <option key={member.playerId} value={member.playerId}>{member.name}</option>
-              ))}
-            </select>
-          </label>
+        {isGroupEntry && (
+          <p className="mt-2 text-sm font-semibold text-slate-700">
+            Group entry mode: you can enter scores for all players in your round group on one screen.
+          </p>
         )}
         <div className="mobile-sticky-actions mt-3">
           <div className="grid grid-cols-2 gap-2">
@@ -251,62 +246,94 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
             <h2 className="text-2xl font-semibold">Hole Entry</h2>
             <p className="mt-2 text-sm text-slate-600">Start hole {currentRound!.startHole}. In progress: {currentRound!.scores.length}/18.</p>
             {currentRound!.roundNumber === 2 && currentRound!.ambrose && (
-              <p className="mt-2 text-sm text-slate-700">
-                Required drives each: <span className="font-semibold">{data.event.ambroseRequiredDrivesPerPlayer}</span>
-              </p>
+              <p className="mt-2 text-sm text-slate-700">Required drives each: <span className="font-semibold">{data.event.ambroseRequiredDrivesPerPlayer}</span></p>
             )}
             {currentRound!.roundNumber === 2 && currentRound!.ambrose && driveCounts.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
                 {driveCounts.map((item) => (
-                  <span key={item.playerId} className="pill">
-                    {item.name}: {item.drives}/{data.event.ambroseRequiredDrivesPerPlayer}
-                  </span>
+                  <span key={item.playerId} className="pill">{item.name}: {item.drives}/{data.event.ambroseRequiredDrivesPerPlayer}</span>
                 ))}
               </div>
             )}
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {order.map((holeNumber) => {
-                const hole = HOLES.find((item) => item.hole === holeNumber)!;
-                const currentDrivePlayerId = firstDriveMap.get(holeNumber) ?? "";
-                return (
-                  <label key={holeNumber} className="panel-tight text-sm">
-                    <span className="font-semibold">Hole {holeNumber}</span> <span className="text-slate-500">(Par {hole.par})</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={data.event.maxInputStrokes}
-                      defaultValue={scoreMap.get(holeNumber) ?? ""}
-                      className="mt-2 w-full bg-white px-4 py-3"
-                      onBlur={(e) => {
-                        const value = Number(e.target.value);
-                        if (Number.isInteger(value) && value >= 1 && value <= data.event.maxInputStrokes) {
-                          void saveHole(holeNumber, value, currentDrivePlayerId ? currentDrivePlayerId : null);
-                        }
-                      }}
-                      disabled={saving || roundLocked}
-                    />
-                    {currentRound!.roundNumber === 2 && currentRound!.ambrose && (
-                      <select
-                        className="mt-2 w-full bg-white px-3 py-2"
-                        value={currentDrivePlayerId}
-                        disabled={saving || roundLocked}
-                        onChange={(e) => {
-                          const driveId = e.target.value || null;
-                          void saveHole(holeNumber, undefined, driveId);
+
+            {isGroupEntry ? (
+              <div className="mt-3 space-y-3">
+                {order.map((holeNumber) => {
+                  const hole = HOLES.find((item) => item.hole === holeNumber)!;
+                  return (
+                    <div key={holeNumber} className="panel-tight">
+                      <p className="text-sm font-semibold">Hole {holeNumber} <span className="text-slate-500">(Par {hole.par})</span></p>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {currentRound!.scorerGroup!.members.map((member) => {
+                          const existing = scoreForMember(member.playerId, holeNumber);
+                          return (
+                            <label key={`${holeNumber}-${member.playerId}`} className="text-xs font-semibold">
+                              {member.name}
+                              <input
+                                type="number"
+                                min={1}
+                                max={data.event.maxInputStrokes}
+                                defaultValue={existing?.strokesRaw ?? ""}
+                                className="mt-1 w-full bg-white"
+                                disabled={saving || roundLocked}
+                                onBlur={(e) => {
+                                  const value = Number(e.target.value);
+                                  if (Number.isInteger(value) && value >= 1 && value <= data.event.maxInputStrokes) {
+                                    void saveHole(member.playerId, holeNumber, value);
+                                  }
+                                }}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {order.map((holeNumber) => {
+                  const hole = HOLES.find((item) => item.hole === holeNumber)!;
+                  const currentDrivePlayerId = firstDriveMap.get(holeNumber) ?? "";
+                  return (
+                    <label key={holeNumber} className="panel-tight text-sm">
+                      <span className="font-semibold">Hole {holeNumber}</span> <span className="text-slate-500">(Par {hole.par})</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={data.event.maxInputStrokes}
+                        defaultValue={scoreMap.get(holeNumber) ?? ""}
+                        className="mt-2 w-full bg-white px-4 py-3"
+                        onBlur={(e) => {
+                          const value = Number(e.target.value);
+                          if (Number.isInteger(value) && value >= 1 && value <= data.event.maxInputStrokes) {
+                            void saveHole(data.player.id, holeNumber, value, currentDrivePlayerId ? currentDrivePlayerId : null);
+                          }
                         }}
-                      >
-                        <option value="">First drive by...</option>
-                        {currentRound!.ambrose.firstDriveOptions.map((option) => (
-                          <option key={option.playerId} value={option.playerId}>
-                            {option.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
+                        disabled={saving || roundLocked}
+                      />
+                      {currentRound!.roundNumber === 2 && currentRound!.ambrose && (
+                        <select
+                          className="mt-2 w-full bg-white px-3 py-2"
+                          value={currentDrivePlayerId}
+                          disabled={saving || roundLocked}
+                          onChange={(e) => {
+                            const driveId = e.target.value || null;
+                            void saveHole(data.player.id, holeNumber, undefined, driveId);
+                          }}
+                        >
+                          <option value="">First drive by...</option>
+                          {currentRound!.ambrose.firstDriveOptions.map((option) => (
+                            <option key={option.playerId} value={option.playerId}>{option.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           <section className="panel">
@@ -349,41 +376,43 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
             )}
           </section>
 
-          <details className="panel">
-            <summary className="cursor-pointer text-2xl font-semibold">Quick Entry Grid</summary>
-            <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
-              {HOLES.map((hole) => (
-                <label key={hole.hole} className="panel-tight text-xs font-semibold">
-                  H{hole.hole}
-                  <input
-                    type="number"
-                    min={1}
-                    max={data.event.maxInputStrokes}
-                    defaultValue={scoreMap.get(hole.hole) ?? ""}
-                    className="mt-1 w-full bg-white"
-                    disabled={roundLocked}
-                    onChange={(e) => {
-                      const strokes = Number(e.target.value);
-                      if (Number.isInteger(strokes) && strokes >= 1 && strokes <= data.event.maxInputStrokes) {
-                        writePending({ holeNumber: hole.hole, strokes });
-                      }
-                    }}
-                  />
-                </label>
-              ))}
-            </div>
-            <button
-              className="btn-primary mt-3"
-              disabled={roundLocked}
-              onClick={async () => {
-                const entries = JSON.parse(localStorage.getItem(storageKey(selectedRound)) ?? "[]") as Array<{ holeNumber: number; strokes: number }>;
-                await syncPending(entries, selectedRound);
-                setNote("Quick entry synced");
-              }}
-            >
-              Sync Quick Entry
-            </button>
-          </details>
+          {!isGroupEntry && (
+            <details className="panel">
+              <summary className="cursor-pointer text-2xl font-semibold">Quick Entry Grid</summary>
+              <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
+                {HOLES.map((hole) => (
+                  <label key={hole.hole} className="panel-tight text-xs font-semibold">
+                    H{hole.hole}
+                    <input
+                      type="number"
+                      min={1}
+                      max={data.event.maxInputStrokes}
+                      defaultValue={scoreMap.get(hole.hole) ?? ""}
+                      className="mt-1 w-full bg-white"
+                      disabled={roundLocked}
+                      onChange={(e) => {
+                        const strokes = Number(e.target.value);
+                        if (Number.isInteger(strokes) && strokes >= 1 && strokes <= data.event.maxInputStrokes) {
+                          writePending({ holeNumber: hole.hole, strokes });
+                        }
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+              <button
+                className="btn-primary mt-3"
+                disabled={roundLocked}
+                onClick={async () => {
+                  const entries = JSON.parse(localStorage.getItem(storageKey(selectedRound)) ?? "[]") as Array<{ holeNumber: number; strokes: number }>;
+                  await syncPending(entries, selectedRound);
+                  setNote("Quick entry synced");
+                }}
+              >
+                Sync Quick Entry
+              </button>
+            </details>
+          )}
         </>
       )}
 
