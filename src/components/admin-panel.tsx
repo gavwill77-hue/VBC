@@ -146,7 +146,18 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ playerId, action })
     });
-    setMessage(response.ok ? `Round action ${action} complete` : `Failed: ${action}`);
+    if (!response.ok) {
+      setMessage(`Failed: ${action}`);
+      return;
+    }
+
+    if (action === "reset") {
+      setPlayerRows((prev) =>
+        prev.map((row) => (row.id === playerId ? { ...row, scores: [] } : row))
+      );
+    }
+
+    setMessage(`Round action ${action} complete`);
   }
 
   async function saveScores(playerId: string, form: FormData) {
