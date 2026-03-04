@@ -9,7 +9,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prisma:migrate": "sh -c 'prisma migrate deploy'",
+    "prisma:migrate": "sh -c 'prisma migrate resolve --applied 20260304084921_add_ambrose_first_drive_tracking || true; prisma migrate deploy'",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
