@@ -394,7 +394,7 @@ export function AdminPanel({ event, events, players }: AdminPanelProps) {
               checked={settings.excludeWorseThanDoubleBogey}
               onChange={(e) => setSettings((s) => ({ ...s, excludeWorseThanDoubleBogey: e.target.checked }))}
             />
-            Exclude scores above double par from Callaway deductions
+            Exclude scores at or above double par from Callaway deductions
           </label>
           <label className="text-sm">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Max Input Strokes</span>

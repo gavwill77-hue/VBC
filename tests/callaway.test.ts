@@ -182,7 +182,7 @@ describe("Callaway calculation", () => {
     expect(result.selectedHoleNumbers.includes(17) || result.halfHoleAppliedTo === 17).toBe(true);
   });
 
-  it("can exclude holes above double par from deductions", () => {
+  it("can exclude holes at or above double par from deductions", () => {
     const raw = Array.from({ length: 18 }, () => 4);
     raw[0] = 10; // par 4, above double par (8), excluded when toggle is on
     raw[1] = 9; // par 3, above double par (6), excluded when toggle is on
@@ -205,7 +205,7 @@ describe("Callaway calculation", () => {
     expect(excluded.handicapAllowance).toBeLessThan(included.handicapAllowance);
   });
 
-  it("does not exclude 9 on a par 5 when exclude-above-double-par is enabled", () => {
+  it("does not exclude 9 on a par 5 when exclude-at-or-above-double-par is enabled", () => {
     const scores = fromRaw(Array.from({ length: 18 }, () => 4));
     const hole3 = scores.find((score) => score.holeNumber === 3)!; // hole 3 is par 5
     hole3.rawStrokes = 9;
@@ -218,6 +218,22 @@ describe("Callaway calculation", () => {
     });
 
     expect(result.selectedHoleNumbers.includes(3) || result.halfHoleAppliedTo === 3).toBe(true);
+  });
+
+  it("excludes exactly double par scores when toggle is enabled", () => {
+    const scores = fromRaw(Array.from({ length: 18 }, () => 4));
+    const hole5 = scores.find((score) => score.holeNumber === 5)!; // par 4
+    hole5.rawStrokes = 8;
+    hole5.adjustedStrokes = 8;
+
+    const result = calculateCallawayResult(scores, {
+      maxDoubleParEnabled: false,
+      capDeductionPerHoleDoublePar: false,
+      excludeWorseThanDoubleBogey: true
+    });
+
+    expect(result.selectedHoleNumbers.includes(5)).toBe(false);
+    expect(result.halfHoleAppliedTo).not.toBe(5);
   });
 
   it("uses 6 worst holes at adjusted gross 127 (par 72 table)", () => {

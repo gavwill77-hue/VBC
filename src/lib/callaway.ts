@@ -123,7 +123,7 @@ export function calculateCallawayResult(scores: HoleScoreInput[], settings: Call
   const deductionEligible = settings.excludeWorseThanDoubleBogey
     ? scores.filter((score) => {
         const holeMeta = HOLE_MAP.get(score.holeNumber);
-        return holeMeta ? score.adjustedStrokes <= holeMeta.par * 2 : true;
+        return holeMeta ? score.adjustedStrokes < holeMeta.par * 2 : true;
       })
     : scores;
 

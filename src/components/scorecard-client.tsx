@@ -225,7 +225,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
         </div>
         <p className="mt-3 text-sm text-slate-600">Active round is {data.event.activeRoundNumber}. Viewing round {selectedRound}.</p>
         <p className="mt-2 text-sm text-slate-600">
-          Max double par {data.event.maxDoubleParEnabled ? "ON" : "OFF"}. Deduction cap {data.event.capDeductionPerHoleDoublePar ? "ON" : "OFF"}. Exclude scores &gt; double par from deductions {data.event.excludeWorseThanDoubleBogey ? "ON" : "OFF"}.
+          Max double par {data.event.maxDoubleParEnabled ? "ON" : "OFF"}. Deduction cap {data.event.capDeductionPerHoleDoublePar ? "ON" : "OFF"}. Exclude scores &gt;= double par from deductions {data.event.excludeWorseThanDoubleBogey ? "ON" : "OFF"}.
         </p>
         {!!currentRound && currentRound.roundNumber === 1 && currentRound.scores.length < 18 && (
           <p className="mt-2 text-sm font-semibold text-slate-700">

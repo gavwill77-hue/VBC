@@ -80,7 +80,7 @@ export function LeaderboardView() {
           <span className="pill">Active round: {data.event.activeRoundNumber}</span>
           <span className="pill">Max double par {data.event.settings.maxDoubleParEnabled ? "ON" : "OFF"}</span>
           <span className="pill">Deduction cap {data.event.settings.capDeductionPerHoleDoublePar ? "ON" : "OFF"}</span>
-          <span className="pill">Exclude &gt; double par {data.event.settings.excludeWorseThanDoubleBogey ? "ON" : "OFF"}</span>
+          <span className="pill">Exclude &gt;= double par {data.event.settings.excludeWorseThanDoubleBogey ? "ON" : "OFF"}</span>
           <span className="pill">{data.event.settings.callawayTableVersion}</span>
         </div>
         <div className="mobile-sticky-actions relative mt-4">
