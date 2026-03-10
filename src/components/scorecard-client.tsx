@@ -55,6 +55,16 @@ type ScoreData = {
       netScore: number;
       firstDriveOptions: Array<{ playerId: string; name: string }>;
     };
+    ambroseGroupsInRoundGroup: null | Array<{
+      groupNumber: number;
+      representativePlayerId: string;
+      memberNames: string[];
+      scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>;
+      handicap: number;
+      grossTotal: number;
+      netScore: number;
+      firstDriveOptions: Array<{ playerId: string; name: string }>;
+    }>;
   };
 };
 
@@ -70,6 +80,10 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
 
   const currentRound = data.round;
   const isGroupEntry = (currentRound?.scorerGroup?.members.length ?? 0) > 1;
+  const isRound2Ambrose = currentRound?.roundNumber === 2 && !!currentRound?.ambrose;
+  const multiAmbroseGroups = currentRound?.ambroseGroupsInRoundGroup ?? null;
+  const showMultiAmbroseGrid = isRound2Ambrose && !!multiAmbroseGroups && multiAmbroseGroups.length > 1;
+  const showSideBySideGrid = isGroupEntry && !isRound2Ambrose;
 
   const scoreMap = useMemo(
     () => new Map((currentRound?.scores ?? []).map((score) => [score.holeNumber, score.strokesRaw])),
@@ -210,9 +224,14 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
         <p className="pill w-fit">Player View</p>
         <h1 className="mt-2 text-3xl font-semibold leading-tight sm:text-4xl">{data.event.name}</h1>
         <p className="mt-1 text-sm text-slate-600">{data.player.name}</p>
-        {isGroupEntry && (
+        {showMultiAmbroseGrid && (
           <p className="mt-2 text-sm font-semibold text-slate-700">
-            Group entry mode: you can enter scores for all players in your round group on one screen.
+            Group entry: enter Ambrose scores for all groups in your playing group.
+          </p>
+        )}
+        {isGroupEntry && !isRound2Ambrose && (
+          <p className="mt-2 text-sm font-semibold text-slate-700">
+            Group entry: you can enter scores for all players in your group on one screen.
           </p>
         )}
         <div className="mobile-sticky-actions mt-3">
@@ -256,7 +275,70 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
               </div>
             )}
 
-            {isGroupEntry ? (
+            {showMultiAmbroseGrid ? (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className="pb-2 pr-3 text-left text-xs font-semibold text-slate-500">Hole</th>
+                      {multiAmbroseGroups!.map((g) => (
+                        <th key={g.groupNumber} className="pb-2 px-2 text-left text-xs font-semibold text-slate-700">
+                          Group {g.groupNumber}
+                          <span className="block font-normal text-slate-500">{g.memberNames.join(", ")}</span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.map((holeNumber) => {
+                      const hole = HOLES.find((item) => item.hole === holeNumber)!;
+                      return (
+                        <tr key={holeNumber} className="border-b border-slate-100">
+                          <td className="py-2 pr-3 text-xs font-semibold">
+                            H{holeNumber} <span className="text-slate-400">(P{hole.par})</span>
+                          </td>
+                          {multiAmbroseGroups!.map((g) => {
+                            const existing = g.scores.find((s) => s.holeNumber === holeNumber);
+                            const currentDriveId = existing?.firstDrivePlayerId ?? "";
+                            return (
+                              <td key={g.groupNumber} className="py-2 px-2">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={data.event.maxInputStrokes}
+                                  defaultValue={existing?.strokesRaw ?? ""}
+                                  className="w-16 bg-white px-2 py-1 text-sm"
+                                  disabled={saving || roundLocked}
+                                  onBlur={(e) => {
+                                    const value = Number(e.target.value);
+                                    if (Number.isInteger(value) && value >= 1 && value <= data.event.maxInputStrokes) {
+                                      void saveHole(g.representativePlayerId, holeNumber, value, currentDriveId || null);
+                                    }
+                                  }}
+                                />
+                                <select
+                                  className="mt-1 w-full bg-white px-2 py-1 text-xs"
+                                  value={currentDriveId}
+                                  disabled={saving || roundLocked}
+                                  onChange={(e) => {
+                                    void saveHole(g.representativePlayerId, holeNumber, undefined, e.target.value || null);
+                                  }}
+                                >
+                                  <option value="">Drive by...</option>
+                                  {g.firstDriveOptions.map((o) => (
+                                    <option key={o.playerId} value={o.playerId}>{o.name}</option>
+                                  ))}
+                                </select>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : showSideBySideGrid ? (
               <div className="mt-3 space-y-3">
                 {order.map((holeNumber) => {
                   const hole = HOLES.find((item) => item.hole === holeNumber)!;
@@ -338,9 +420,24 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
 
           <section className="panel">
             <h2 className="text-2xl font-semibold">
-              {currentRound!.roundNumber === 2 && currentRound!.ambrose ? "Ambrose Calculation" : `Callaway Calculation (Round ${currentRound!.roundNumber})`}
+              {showMultiAmbroseGrid ? "Ambrose Calculations" : currentRound!.roundNumber === 2 && currentRound!.ambrose ? "Ambrose Calculation" : `Callaway Calculation (Round ${currentRound!.roundNumber})`}
             </h2>
-            {currentRound!.roundNumber === 2 && currentRound!.ambrose ? (
+            {showMultiAmbroseGrid ? (
+              <div className="mt-3 space-y-3">
+                {multiAmbroseGroups!.map((g) => (
+                  <div key={g.groupNumber} className="space-y-1 text-sm">
+                    <p className="font-semibold">Group {g.groupNumber}: {g.memberNames.join(", ")}</p>
+                    <p className="text-slate-700">Net = Gross ({g.grossTotal}) - Handicap ({g.handicap}) = <span className="font-semibold">{g.netScore}</span></p>
+                    <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                      {g.firstDriveOptions.map((o) => {
+                        const drives = g.scores.filter((s) => s.firstDrivePlayerId === o.playerId).length;
+                        return <span key={o.playerId} className="pill">{o.name}: {drives}/{data.event.ambroseRequiredDrivesPerPlayer}</span>;
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : currentRound!.roundNumber === 2 && currentRound!.ambrose ? (
               <div className="mt-3 space-y-2 text-sm">
                 <p><span className="font-semibold">Group:</span> {currentRound!.ambrose!.groupNumber}</p>
                 <p><span className="font-semibold">Team:</span> {currentRound!.ambrose!.teammates.join(", ")}</p>
@@ -376,7 +473,7 @@ export function ScorecardClient({ initialData }: { initialData: ScoreData }) {
             )}
           </section>
 
-          {!isGroupEntry && (
+          {!isGroupEntry && !showMultiAmbroseGrid && (
             <details className="panel">
               <summary className="cursor-pointer text-2xl font-semibold">Quick Entry Grid</summary>
               <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">

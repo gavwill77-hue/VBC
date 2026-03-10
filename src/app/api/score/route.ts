@@ -11,6 +11,16 @@ type ScoreUpdate = {
   strokes?: number;
   firstDrivePlayerId?: string | null;
 };
+type AmbroseGroupContext = {
+  groupNumber: number;
+  representativePlayerId: string;
+  memberNames: string[];
+  scores: Array<{ holeNumber: number; strokesRaw: number; firstDrivePlayerId: string | null }>;
+  handicap: number;
+  grossTotal: number;
+  netScore: number;
+  firstDriveOptions: Array<{ playerId: string; name: string }>;
+};
 
 function sanitiseRoundNumber(input: unknown, fallback: number, totalRounds: number): RoundNumber {
   const parsed = Number(input);
@@ -105,7 +115,7 @@ async function getScoringContext(userId: string, requestedRound?: RoundNumber, r
       })
     : [];
 
-  const groupMembers = (groupAssignments.length > 0 ? groupAssignments : [{
+  let groupMembers = (groupAssignments.length > 0 ? groupAssignments : [{
     groupNumber: null,
     player: scorer
   } as unknown as (typeof groupAssignments)[number]]).map((entry) => ({
@@ -115,11 +125,74 @@ async function getScoringContext(userId: string, requestedRound?: RoundNumber, r
     scores: entry.player.rounds[0]?.scores ?? []
   }));
 
+  // Case A: No round group — use Ambrose group membership as authorization & display fallback
+  const scorerAmbroseMembership = groupAssignments.length === 0
+    ? await getPlayerAmbroseGroup(scorer.id)
+    : null;
+
+  if (scorerAmbroseMembership) {
+    const ambrosePlayerIds = scorerAmbroseMembership.group.members.map((m) => m.playerId);
+    const ambrosePlayers = await prisma.player.findMany({
+      where: { id: { in: ambrosePlayerIds } },
+      include: {
+        rounds: { where: { roundNumber: selectedRoundNumber }, include: { scores: true } }
+      },
+      orderBy: { order: "asc" }
+    });
+    groupMembers = ambrosePlayers.map((p) => ({
+      playerId: p.id,
+      name: p.name,
+      groupNumber: scorerAmbroseMembership.group.groupNumber,
+      scores: p.rounds[0]?.scores ?? []
+    }));
+  }
+
+  // Case B: Round group exists on Round 2 — detect all Ambrose groups within the round group
+  let ambroseGroupsInRoundGroup: AmbroseGroupContext[] | null = null;
+
+  if (groupAssignments.length > 0 && selectedRoundNumber === 2) {
+    const memberIds = groupAssignments.map((a) => a.player.id);
+    const memberships = await prisma.ambroseGroupMember.findMany({
+      where: { playerId: { in: memberIds } },
+      include: {
+        group: { include: { members: { include: { player: true } } } }
+      }
+    });
+
+    const seenGroups = new Map<string, (typeof memberships)[number]>();
+    for (const m of memberships) {
+      if (!seenGroups.has(m.groupId)) seenGroups.set(m.groupId, m);
+    }
+
+    if (seenGroups.size > 1) {
+      ambroseGroupsInRoundGroup = [];
+      for (const membership of seenGroups.values()) {
+        const repPlayerId = membership.playerId;
+        const repRound = await prisma.round.findFirst({
+          where: { playerId: repPlayerId, roundNumber: 2 },
+          include: { scores: true }
+        });
+        const handicap = await ambroseHandicapForGroup(membership.groupId);
+        const grossTotal = repRound?.scores.reduce((s, sc) => s + sc.strokesRaw, 0) ?? 0;
+        ambroseGroupsInRoundGroup.push({
+          groupNumber: membership.group.groupNumber,
+          representativePlayerId: repPlayerId,
+          memberNames: membership.group.members.map((m) => m.player.name),
+          scores: repRound?.scores ?? [],
+          handicap,
+          grossTotal,
+          netScore: grossTotal - handicap,
+          firstDriveOptions: membership.group.members.map((m) => ({ playerId: m.player.id, name: m.player.name }))
+        });
+      }
+    }
+  }
+
   const targetPlayerId = requestedTargetPlayerId ?? scorer.id;
   const targetAllowed = groupMembers.some((member) => member.playerId === targetPlayerId);
   if (!targetAllowed) {
     return {
-      error: "Target player is not in your round group",
+      error: "Target player is not in your group",
       status: 403
     } as const;
   }
@@ -183,8 +256,9 @@ async function getScoringContext(userId: string, requestedRound?: RoundNumber, r
     selectedRoundNumber,
     roundUnavailableReason,
     ambrose,
-    groupNumber: scorerRoundGroup?.groupNumber ?? null,
-    groupMembers
+    groupNumber: scorerRoundGroup?.groupNumber ?? scorerAmbroseMembership?.group.groupNumber ?? null,
+    groupMembers,
+    ambroseGroupsInRoundGroup
   } as const;
 }
 
@@ -232,6 +306,7 @@ export async function GET(request: NextRequest) {
       scores: context.round.scores,
       callaway,
       ambrose: context.round.roundNumber === 2 ? context.ambrose : null,
+      ambroseGroupsInRoundGroup: context.ambroseGroupsInRoundGroup,
       scorerGroup: {
         groupNumber: context.groupNumber,
         members: context.groupMembers
